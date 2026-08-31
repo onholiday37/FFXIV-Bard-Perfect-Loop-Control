@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.2.1.0</Version>
+    <Version>0.3.0.0</Version>
     <AssemblyName>BardPerfectLoopControl</AssemblyName>
     <Author>Codex / ouyan</Author>
     <Name>吟游诗人完美轴·完全控制版</Name>
-    <Punchline>按实时冷却、歌量谱和双 DoT 自动执行吟游循环。</Punchline>
-    <Description>吟游诗人完全控制轮转插件。手动启动后，根据实际技能冷却、自定义 GCD、歌曲量谱、随机触发与双 DoT 执行动作；支持50级及以下的等级同步循环。每个 GCD 周期最多插入两个能力技，动作之间至少间隔 0.70 秒；Boss 上天时停火并在复现后按实时状态重新规划。</Description>
+    <Punchline>按 NGA 攻略轴、实时冷却、歌量谱和双 DoT 自动执行吟游循环。</Punchline>
+    <Description>吟游诗人完全控制轮转插件。0.3.0 新增 NGA 7.0 攻略完美轴：2.47/2.48 自动使用3-3-12，2.49/2.50自动使用3-6-9；按真实冷却处理团辅错位、九天、诗音、魂音、触发技能与猛者末段截毒。支持等级同步，每个 GCD 最多双插，Boss 上天后按复现时状态重新规划。</Description>
     <Tags>bard;rotation;control;timeline;吟游诗人;完全控制</Tags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="tests\**\*" />
+  </ItemGroup>
 </Project>

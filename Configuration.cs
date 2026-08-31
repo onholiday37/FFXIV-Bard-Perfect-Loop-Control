@@ -5,16 +5,17 @@ namespace BardPerfectLoop;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     public bool Enabled = true;
     public bool ShowOverlay = true;
     public bool StopWhenCombatEnds = true;
     public float GcdSeconds = 2.47f;
-    public SongPlanMode SongPlan = SongPlanMode.Standard3312;
-    public float WandererCutRemaining = 3f;
-    public float MageCutRemaining = 3f;
-    public float ArmyCutRemaining = 12f;
+    public bool GuidePerfectAxis = true;
+    public SongPlanMode SongPlan = SongPlanMode.GuideAuto;
+    public float WandererCutRemaining = 2f;
+    public float MageCutRemaining = 2f;
+    public float ArmyCutRemaining = 11f;
     public float OgcdLookAheadSeconds = 0.65f;
     public float GcdQueueWindowSeconds = 0.45f;
 
@@ -30,6 +31,13 @@ public sealed class Configuration : IPluginConfiguration
 
     public void EnsureDefaults()
     {
+        if (Version < 3)
+        {
+            GuidePerfectAxis = true;
+            SongPlan = SongPlanMode.GuideAuto;
+            Version = 3;
+        }
+
         Steps ??= [];
         if (Steps.Count == 0)
             Steps = ActionCatalog.CreateDefaultSteps();
@@ -44,18 +52,24 @@ public sealed class Configuration : IPluginConfiguration
     public void ApplyStandard3312()
     {
         SongPlan = SongPlanMode.Standard3312;
-        WandererCutRemaining = 3f;
-        MageCutRemaining = 3f;
-        ArmyCutRemaining = 12f;
+        WandererCutRemaining = 2f;
+        MageCutRemaining = 2f;
+        ArmyCutRemaining = 11f;
         Save();
     }
 
     public void ApplyAdvanced369()
     {
         SongPlan = SongPlanMode.Advanced369;
-        WandererCutRemaining = 3f;
-        MageCutRemaining = 6f;
-        ArmyCutRemaining = 9f;
+        WandererCutRemaining = 2f;
+        MageCutRemaining = 5f;
+        ArmyCutRemaining = 8f;
+        Save();
+    }
+
+    public void ApplyGuideAuto()
+    {
+        SongPlan = SongPlanMode.GuideAuto;
         Save();
     }
 }

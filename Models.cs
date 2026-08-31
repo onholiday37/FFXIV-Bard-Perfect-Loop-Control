@@ -10,9 +10,10 @@ public enum ShadowActionKind
 
 public enum SongPlanMode
 {
-    Standard3312,
-    Advanced369,
-    Custom,
+    Standard3312 = 0,
+    Advanced369 = 1,
+    Custom = 2,
+    GuideAuto = 3,
 }
 
 public enum StepCondition
@@ -24,6 +25,11 @@ public enum StepCondition
     StormMissing,
     DotRefreshDue,
     RepertoireThree,
+    DotSnapshotDue,
+    SoulVoiceEighty,
+    BlastArrowReady,
+    ResonantArrowReady,
+    RadiantEncoreReady,
 }
 
 public sealed class RotationStep
@@ -75,10 +81,12 @@ public sealed record DotAnalysis(
 public sealed record CooldownAnalysis(string Name, uint ActionId, float Remaining, bool Ready);
 
 public sealed record SongAnalysis(
+    string PlanName,
     string CurrentSong,
     string NextSong,
     float Remaining,
     float PlannedCutRemaining,
+    float PlannedSingingSeconds,
     float UntilSwitch,
     byte Repertoire);
 

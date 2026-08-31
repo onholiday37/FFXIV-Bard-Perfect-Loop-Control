@@ -119,7 +119,7 @@ public sealed class Plugin : IDalamudPlugin
                 StartControl();
                 Configuration.ShowOverlay = true;
                 Configuration.Save();
-                ChatGui.Print("[吟游完美轴·完全控制] 已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
+                ChatGui.Print("[吟游完美轴·完全控制] NGA攻略轴已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
                 break;
             case "stop":
             case "停止":

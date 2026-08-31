@@ -45,7 +45,9 @@ public sealed class ControlWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("GCD 与歌轴模板");
+        ImGui.TextUnformatted("NGA 攻略完美轴");
+        changed |= ImGui.Checkbox("启用攻略完美轴（推荐）", ref config.GuidePerfectAxis);
+        ImGui.TextDisabled("启用后：起手、120秒团辅、九天、诗音、魂音、触发技能和猛者截毒均由攻略规则与真实CD共同决定。");
         var gcd = config.GcdSeconds;
         if (ImGui.SliderFloat("自定义 GCD（秒）", ref gcd, 2.30f, 2.60f, "%.2f"))
         {
@@ -53,13 +55,24 @@ public sealed class ControlWindow : Window, IDisposable
             changed = true;
         }
 
-        if (ImGui.Button("Standard 3-3-12（通用）"))
+        if (ImGui.Button("攻略自动选择（推荐）"))
+            config.ApplyGuideAuto();
+        ImGui.SameLine();
+        if (ImGui.Button("3-3-12（2.47/2.48）"))
             config.ApplyStandard3312();
         ImGui.SameLine();
-        if (ImGui.Button("Advanced 3-6-9（2.49/2.50）"))
+        if (ImGui.Button("3-6-9（2.49/2.50）"))
             config.ApplyAdvanced369();
 
-        ImGui.Text($"当前模板：{SongPlanName(config.SongPlan)}");
+        var resolvedPlan = GuideAxisRules.ResolveSongPlan(
+            config.SongPlan,
+            config.GcdSeconds,
+            config.WandererCutRemaining,
+            config.MageCutRemaining,
+            config.ArmyCutRemaining);
+        ImGui.Text($"当前模板：{SongPlanName(config.SongPlan)} → {resolvedPlan.Name}");
+        ImGui.TextDisabled($"实际切点：旅神剩 {resolvedPlan.WandererCutRemaining:F0}s / 贤者剩 {resolvedPlan.MageCutRemaining:F0}s / 军神剩 {resolvedPlan.ArmyCutRemaining:F0}s");
+        ImGui.TextDisabled("攻略名称按诗心判定习惯写作3-3-12/3-6-9；游戏量谱的可执行切点分别是2-2-11/2-5-8。");
         changed |= CutSlider("旅神剩余秒数切歌", ref config.WandererCutRemaining, config);
         changed |= CutSlider("贤者剩余秒数切歌", ref config.MageCutRemaining, config);
         changed |= CutSlider("军神剩余秒数切歌", ref config.ArmyCutRemaining, config);
@@ -120,7 +133,7 @@ public sealed class ControlWindow : Window, IDisposable
         ImGui.TextDisabled("剩余跳数按每3秒一次估算，并明确计入未结算威力；不会只看直接伤害。");
 
         ImGui.Separator();
-        ImGui.TextUnformatted("可视化条件循环（优先级越高越先检查）");
+        ImGui.TextUnformatted("可视化条件循环（关闭攻略完美轴后生效）");
         DrawStepEditor(config, ref changed);
 
         if (changed)
@@ -242,6 +255,7 @@ public sealed class ControlWindow : Window, IDisposable
 
     private static string SongPlanName(SongPlanMode mode) => mode switch
     {
+        SongPlanMode.GuideAuto => "NGA攻略自动轴",
         SongPlanMode.Standard3312 => "Standard 3-3-12",
         SongPlanMode.Advanced369 => "Advanced 3-6-9",
         _ => "Custom 自定义",
@@ -257,7 +271,12 @@ public sealed class ControlWindow : Window, IDisposable
         StepCondition.CausticMissing => "目标缺少毒咬 DoT",
         StepCondition.StormMissing => "目标缺少风蚀 DoT",
         StepCondition.DotRefreshDue => "双 DoT 进入计算刷新窗口",
+        StepCondition.DotSnapshotDue => "猛者末段按收益截毒",
         StepCondition.RepertoireThree => "旅神达到3层诗音",
+        StepCondition.SoulVoiceEighty => "魂音达到80",
+        StepCondition.BlastArrowReady => "爆破箭触发可用",
+        StepCondition.ResonantArrowReady => "共鸣箭触发可用",
+        StepCondition.RadiantEncoreReady => "光明神返场触发可用",
         _ => condition.ToString(),
     };
 }

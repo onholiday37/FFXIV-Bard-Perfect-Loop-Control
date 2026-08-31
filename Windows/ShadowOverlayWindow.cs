@@ -78,8 +78,9 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
         {
             ImGui.Separator();
             var song = snapshot.Song;
+            ImGui.Text($"歌轴：{song.PlanName}");
             ImGui.Text($"歌曲：{song.CurrentSong}  剩余 {song.Remaining:F1}s  诗音 {song.Repertoire}");
-            ImGui.Text($"计划：{Math.Max(0, song.UntilSwitch):F1}s 后切 {song.NextSong}（剩余 {song.PlannedCutRemaining:F0}s 切）");
+            ImGui.Text($"计划唱满 {song.PlannedSingingSeconds:F0}s：{Math.Max(0, song.UntilSwitch):F1}s 后切 {song.NextSong}（量谱剩 {song.PlannedCutRemaining:F0}s）");
         }
 
         if (snapshot.Dots is not null)

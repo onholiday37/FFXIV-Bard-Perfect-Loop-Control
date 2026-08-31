@@ -107,6 +107,8 @@ public sealed class ActionExecutor
         if (activeGcdCycle &&
             !pendingGcd &&
             plugin.Engine.RecommendedOgcdActionId != 0 &&
+            (!plugin.Engine.RecommendedOgcdRequiresLateWeave ||
+             gcdRemaining <= GuideAxisRules.LateWeaveGate(configuration.GcdSeconds)) &&
             ExecutionRules.CanAttemptOgcd(
                 OgcdsThisCycle,
                 gcdRemaining,
@@ -122,6 +124,12 @@ public sealed class ActionExecutor
         else if (OgcdsThisCycle >= ExecutionRules.MaxOgcdPerGcd)
         {
             Status = "本 GCD 已完成双插，等待下一个 GCD";
+        }
+        else if (activeGcdCycle &&
+                 plugin.Engine.RecommendedOgcdRequiresLateWeave &&
+                 gcdRemaining > GuideAxisRules.LateWeaveGate(configuration.GcdSeconds))
+        {
+            Status = "攻略团辅等待后半 GCD，争取覆盖 9/9";
         }
 
         previousGcdRemaining = gcdRemaining;
@@ -182,7 +190,7 @@ public sealed class ActionExecutor
 
         return manager->UseAction(
             ActionType.Action,
-            actionId,
+            adjustedActionId,
             target.GameObjectId,
             0,
             ActionManager.UseActionMode.None,
