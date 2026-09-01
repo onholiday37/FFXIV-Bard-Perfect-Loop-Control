@@ -1,0 +1,93 @@
+namespace BardPerfectLoop;
+
+public readonly record struct RotationScenarioProfile(
+    RotationScenario Scenario,
+    string Name,
+    string ShortName,
+    string Summary,
+    SongPlanMode SongPlan,
+    float? RecommendedGcd,
+    float DotRefreshLead,
+    bool UsesModernBurstOrder,
+    bool UsesCurrentApexRules,
+    bool UsesLegacyDotSnapshot,
+    bool ReplansDowntime);
+
+public static class ScenarioRules
+{
+    public static RotationScenarioProfile Resolve(RotationScenario scenario) => scenario switch
+    {
+        RotationScenario.Standard249 => new(
+            scenario,
+            "2.49 标准轴（当前）",
+            "2.49标准",
+            "2.49 GCD 仍使用通用 3-3-12；不自动切成进阶轴。",
+            SongPlanMode.Standard3312,
+            2.49f,
+            5.5f,
+            true,
+            true,
+            false,
+            false),
+        RotationScenario.Advanced369 => new(
+            scenario,
+            "2.50 进阶 3-6-9",
+            "2.50进阶",
+            "长时间可攻击、轴稳定时使用；43旅、40贤、37军。",
+            SongPlanMode.Advanced369,
+            2.50f,
+            4.5f,
+            true,
+            true,
+            false,
+            false),
+        RotationScenario.DowntimeRecovery => new(
+            scenario,
+            "Boss 上天 / 断轴恢复",
+            "上天恢复",
+            "目标不可选时停火；复现后丢弃旧时间点，按真实CD、歌曲和DoT重排。",
+            SongPlanMode.Standard3312,
+            null,
+            6.5f,
+            true,
+            true,
+            false,
+            true),
+        RotationScenario.LegacyNga => new(
+            scenario,
+            "旧 NGA 7.2 对照轴",
+            "旧NGA",
+            "保留旧帖的GCD自动歌轴、团辅顺序和猛者末段截毒，仅用于对照。",
+            SongPlanMode.GuideAuto,
+            null,
+            3.2f,
+            false,
+            false,
+            true,
+            false),
+        RotationScenario.Custom => new(
+            scenario,
+            "Custom 自定义轴",
+            "自定义",
+            "自行设置GCD和三首歌的切换秒数；动作仍按当前实时规则决定。",
+            SongPlanMode.Custom,
+            null,
+            5.5f,
+            true,
+            true,
+            false,
+            false),
+        _ => new(
+            RotationScenario.CurrentStandard,
+            "通用 Standard 3-3-12（当前）",
+            "通用3-3-12",
+            "适合大多数 2.47–2.49 GCD 与普通高难，优先稳定不断歌。",
+            SongPlanMode.Standard3312,
+            null,
+            5.5f,
+            true,
+            true,
+            false,
+            false),
+    };
+}

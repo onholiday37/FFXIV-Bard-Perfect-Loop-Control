@@ -28,12 +28,13 @@ public sealed class ShadowEngine
     public string RecommendedGcdName { get; private set; } = string.Empty;
     public string RecommendedOgcdName { get; private set; } = string.Empty;
     public bool RecommendedOgcdRequiresLateWeave { get; private set; }
+    public int OgcdLimitThisCycle { get; private set; } = ExecutionRules.MaxOgcdPerGcd;
     public bool UsesLevel50Profile => plugin.EffectiveLevel is > 0 and <= 50;
     public uint GcdReferenceActionId => plugin.EffectiveLevel < 76 ? ActionCatalog.HeavyShot : ActionCatalog.BurstShot;
     public string ActiveProfileName => UsesLevel50Profile
         ? $"等级同步 {plugin.EffectiveLevel}：低等级自适应循环"
         : configuration.GuidePerfectAxis
-            ? $"NGA 攻略完美轴：{ResolveSongPlan().Name}"
+            ? $"{ScenarioRules.Resolve(configuration.Scenario).Name}：{ResolveSongPlan().Name}"
             : "高等级自定义条件循环";
 
     public ShadowEngine(Plugin plugin, Configuration configuration)
@@ -47,6 +48,7 @@ public sealed class ShadowEngine
         Armed = true;
         wasInCombat = false;
         lastKnownSong = GaugeSong.None;
+        OgcdLimitThisCycle = ExecutionRules.MaxOgcdPerGcd;
         Snapshot = WaitingSnapshot("已启动，等待进入战斗");
     }
 
@@ -128,6 +130,9 @@ public sealed class ShadowEngine
             untilNextGcd = 0;
 
         var gauge = Plugin.JobGauges.Get<BRDGauge>();
+        OgcdLimitThisCycle = gauge.Song == GaugeSong.ArmysPaeon && gauge.Repertoire >= 4
+            ? 1
+            : ExecutionRules.MaxOgcdPerGcd;
         var dots = AnalyzeDots();
         var song = AnalyzeSong(gauge);
         var cooldowns = AnalyzeMajorCooldowns();
@@ -143,7 +148,9 @@ public sealed class ShadowEngine
         RecommendedOgcdActionId = nextOgcdStep?.ActionId ?? 0;
         RecommendedGcdName = nextGcdStep?.Name ?? string.Empty;
         RecommendedOgcdName = nextOgcdStep?.Name ?? string.Empty;
-        RecommendedOgcdRequiresLateWeave = nextOgcdStep is not null && GuideAxisRules.IsLateWeave(nextOgcdStep.ActionId);
+        RecommendedOgcdRequiresLateWeave = nextOgcdStep is not null && GuideAxisRules.IsLateWeave(
+            nextOgcdStep.ActionId,
+            ScenarioRules.Resolve(configuration.Scenario).UsesModernBurstOrder);
 
         var nextGcd = nextGcdStep is null ? "无可用 GCD 建议" : FormatStep(nextGcdStep);
         var nextOgcd = nextOgcdStep is null ? "暂不插入能力技" : FormatStep(nextOgcdStep);
@@ -237,14 +244,23 @@ public sealed class ShadowEngine
 
         var ragingCooldown = ReadCooldownRemaining(ActionCatalog.RagingStrikes);
         var inBurstWindow = ragingRemaining > 0f;
+        var scenario = ScenarioRules.Resolve(configuration.Scenario);
+        var songRemaining = Math.Max(0f, gauge.SongTimer / 1000f);
+        var useApex = scenario.UsesCurrentApexRules
+            ? GuideAxisRules.ShouldUseCurrentApex(
+                gauge.SoulVoice,
+                inBurstWindow,
+                gauge.Song == GaugeSong.MagesBallad,
+                songRemaining)
+            : GuideAxisRules.ShouldUseApex(gauge.SoulVoice, inBurstWindow, ragingCooldown);
         if (IsActionLearned(ActionCatalog.ApexArrow) &&
-            GuideAxisRules.ShouldUseApex(gauge.SoulVoice, inBurstWindow, ragingCooldown))
+            useApex)
             return MakeStep(ActionCatalog.ApexArrow, $"绝峰箭（魂音 {gauge.SoulVoice}）", ShadowActionKind.Gcd, StepCondition.SoulVoiceEighty, 175);
 
         if (IsActionLearned(ActionCatalog.ResonantArrow) && HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady))
             return MakeStep(ActionCatalog.ResonantArrow, "共鸣箭", ShadowActionKind.Gcd, StepCondition.ResonantArrowReady, 170);
 
-        var snapshotDue = dots is not null && GuideAxisRules.ShouldSnapshotDots(
+        var snapshotDue = scenario.UsesLegacyDotSnapshot && dots is not null && GuideAxisRules.ShouldSnapshotDots(
             dots.CausticRemaining,
             dots.StormRemaining,
             ragingRemaining);
@@ -291,7 +307,7 @@ public sealed class ShadowEngine
             return MakeStep(ActionCatalog.EmpyrealArrow, "九天连箭（好了就打）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 245);
 
         // One GCD of lead is reserved so the party buffs can be staged before
-        // Raging Strikes without drifting the real 120-second cooldown anchor.
+        // Raging Strikes without drifting the real cooldown anchor.
         var ragingReady = ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 2.2f;
         var ragingRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes);
         var battleVoiceRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice);
@@ -301,20 +317,41 @@ public sealed class ShadowEngine
 
         if (songActive && ragingReady)
         {
-            if (IsActionReadyNow(ActionCatalog.BattleVoice))
-                return MakeStep(ActionCatalog.BattleVoice, "战斗之声（攻略后半插）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 240);
+            var scenario = ScenarioRules.Resolve(configuration.Scenario);
+            if (scenario.UsesModernBurstOrder)
+            {
+                if (IsActionReadyNow(ActionCatalog.RadiantFinale))
+                    return MakeStep(ActionCatalog.RadiantFinale, "光明神的最终乐章（当前轴先开）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 240);
 
-            var battleVoiceStaggered = !IsActionLearned(ActionCatalog.BattleVoice) ||
-                                       battleVoiceRemaining is > 0f and <= 17.7f ||
-                                       battleVoiceRemaining <= 0f && battleVoiceCooldown > 100f;
-            if (battleVoiceStaggered && IsActionReadyNow(ActionCatalog.RadiantFinale))
-                return MakeStep(ActionCatalog.RadiantFinale, "光明神的最终乐章（团辅错开）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 235);
+                var radiantStarted = !IsActionLearned(ActionCatalog.RadiantFinale) ||
+                                     radiantRemaining > 0f ||
+                                     radiantCooldown > 90f;
+                if (radiantStarted && IsActionReadyNow(ActionCatalog.BattleVoice))
+                    return MakeStep(ActionCatalog.BattleVoice, "战斗之声（与光明神双插）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 235);
 
-            var radiantStaggered = !IsActionLearned(ActionCatalog.RadiantFinale) ||
-                                   radiantRemaining is > 0f and <= 17.7f ||
-                                   radiantRemaining <= 0f && radiantCooldown > 90f;
-            if (battleVoiceStaggered && radiantStaggered && IsActionReadyNow(ActionCatalog.RagingStrikes))
-                return MakeStep(ActionCatalog.RagingStrikes, "猛者强击（最后开启）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 230);
+                var battleVoiceStarted = !IsActionLearned(ActionCatalog.BattleVoice) ||
+                                         battleVoiceRemaining > 0f ||
+                                         battleVoiceCooldown > 100f;
+                if (radiantStarted && battleVoiceStarted && IsActionReadyNow(ActionCatalog.RagingStrikes))
+                    return MakeStep(ActionCatalog.RagingStrikes, "猛者强击（下一GCD后半插）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 230);
+            }
+            else
+            {
+                if (IsActionReadyNow(ActionCatalog.BattleVoice))
+                    return MakeStep(ActionCatalog.BattleVoice, "战斗之声（旧NGA顺序）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 240);
+
+                var battleVoiceStarted = !IsActionLearned(ActionCatalog.BattleVoice) ||
+                                         battleVoiceRemaining > 0f ||
+                                         battleVoiceCooldown > 100f;
+                if (battleVoiceStarted && IsActionReadyNow(ActionCatalog.RadiantFinale))
+                    return MakeStep(ActionCatalog.RadiantFinale, "光明神的最终乐章（旧NGA顺序）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 235);
+
+                var radiantStarted = !IsActionLearned(ActionCatalog.RadiantFinale) ||
+                                     radiantRemaining > 0f ||
+                                     radiantCooldown > 90f;
+                if (battleVoiceStarted && radiantStarted && IsActionReadyNow(ActionCatalog.RagingStrikes))
+                    return MakeStep(ActionCatalog.RagingStrikes, "猛者强击（旧NGA最后开启）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 230);
+            }
         }
 
         if (ragingRemaining > 0f && IsActionReadyNow(ActionCatalog.Barrage) && !HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady))

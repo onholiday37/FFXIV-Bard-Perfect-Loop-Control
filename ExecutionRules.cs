@@ -13,8 +13,9 @@ public static class ExecutionRules
         float gcdRemaining,
         double secondsSinceLastAcceptedAction,
         float animationLock,
-        bool actionQueued) =>
-        ogcdsThisCycle < MaxOgcdPerGcd &&
+        bool actionQueued,
+        int maxOgcds = MaxOgcdPerGcd) =>
+        ogcdsThisCycle < Math.Clamp(maxOgcds, 1, MaxOgcdPerGcd) &&
         gcdRemaining > MinimumRemainingForWeave &&
         secondsSinceLastAcceptedAction >= MinimumActionIntervalSeconds &&
         animationLock <= 0.01f &&

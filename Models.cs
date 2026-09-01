@@ -16,6 +16,16 @@ public enum SongPlanMode
     GuideAuto = 3,
 }
 
+public enum RotationScenario
+{
+    CurrentStandard = 0,
+    Standard249 = 1,
+    Advanced369 = 2,
+    DowntimeRecovery = 3,
+    LegacyNga = 4,
+    Custom = 5,
+}
+
 public enum StepCondition
 {
     Always,

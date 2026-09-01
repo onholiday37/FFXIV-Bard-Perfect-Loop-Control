@@ -45,9 +45,26 @@ public sealed class ControlWindow : Window, IDisposable
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("NGA 攻略完美轴");
-        changed |= ImGui.Checkbox("启用攻略完美轴（推荐）", ref config.GuidePerfectAxis);
-        ImGui.TextDisabled("启用后：起手、120秒团辅、九天、诗音、魂音、触发技能和猛者截毒均由攻略规则与真实CD共同决定。");
+        ImGui.TextUnformatted("场景轴预设");
+        changed |= ImGui.Checkbox("启用实时完美轴（推荐）", ref config.GuidePerfectAxis);
+        ImGui.TextDisabled("点一个小按钮即可换整套场景；运行中切换会丢弃旧时间点，并从当前真实状态重新排轴。");
+
+        ScenarioButton("通用 3-3-12", RotationScenario.CurrentStandard, config);
+        ImGui.SameLine();
+        ScenarioButton("2.49 标准", RotationScenario.Standard249, config);
+        ImGui.SameLine();
+        ScenarioButton("2.50 进阶 3-6-9", RotationScenario.Advanced369, config);
+        ImGui.SameLine();
+        ScenarioButton("Boss 上天/断轴", RotationScenario.DowntimeRecovery, config);
+
+        ScenarioButton("旧 NGA 7.2 对照", RotationScenario.LegacyNga, config);
+        ImGui.SameLine();
+        ScenarioButton("Custom 自定义", RotationScenario.Custom, config);
+
+        var scenario = ScenarioRules.Resolve(config.Scenario);
+        ImGui.TextColored(new Vector4(0.35f, 0.85f, 1f, 1f), $"当前场景：{scenario.Name}");
+        ImGui.TextWrapped(scenario.Summary);
+
         var gcd = config.GcdSeconds;
         if (ImGui.SliderFloat("自定义 GCD（秒）", ref gcd, 2.30f, 2.60f, "%.2f"))
         {
@@ -55,22 +72,13 @@ public sealed class ControlWindow : Window, IDisposable
             changed = true;
         }
 
-        if (ImGui.Button("攻略自动选择（推荐）"))
-            config.ApplyGuideAuto();
-        ImGui.SameLine();
-        if (ImGui.Button("3-3-12（2.47/2.48）"))
-            config.ApplyStandard3312();
-        ImGui.SameLine();
-        if (ImGui.Button("3-6-9（2.49/2.50）"))
-            config.ApplyAdvanced369();
-
         var resolvedPlan = GuideAxisRules.ResolveSongPlan(
             config.SongPlan,
             config.GcdSeconds,
             config.WandererCutRemaining,
             config.MageCutRemaining,
             config.ArmyCutRemaining);
-        ImGui.Text($"当前模板：{SongPlanName(config.SongPlan)} → {resolvedPlan.Name}");
+        ImGui.Text($"当前歌轴：{SongPlanName(config.SongPlan)} → {resolvedPlan.Name}");
         ImGui.TextDisabled($"实际切点：旅神剩 {resolvedPlan.WandererCutRemaining:F0}s / 贤者剩 {resolvedPlan.MageCutRemaining:F0}s / 军神剩 {resolvedPlan.ArmyCutRemaining:F0}s");
         ImGui.TextDisabled("攻略名称按诗心判定习惯写作3-3-12/3-6-9；游戏量谱的可执行切点分别是2-2-11/2-5-8。");
         changed |= CutSlider("旅神剩余秒数切歌", ref config.WandererCutRemaining, config);
@@ -92,7 +100,7 @@ public sealed class ControlWindow : Window, IDisposable
             config.GcdQueueWindowSeconds = queueWindow;
             changed = true;
         }
-        ImGui.TextDisabled("固定规则：每个已结算 GCD 最多插入 2 个能力技，动作之间至少间隔 0.70 秒。");
+        ImGui.TextDisabled("固定规则：每个已结算 GCD 最多插入 2 个能力技；军神满层加速时最多单插；动作之间至少间隔 0.70 秒。");
         ImGui.TextDisabled("Boss 不可选时停火；同一目标复现后按当前 CD、歌曲、诗音和 DoT 重新规划，不追赶旧轴。");
         if (plugin.Engine.UsesLevel50Profile)
             ImGui.TextColored(new Vector4(0.35f, 0.85f, 1f, 1f), $"当前有效等级 {plugin.EffectiveLevel}：自动使用低等级技能与双歌循环，高等级自定义列表暂不参与执行。");
@@ -249,13 +257,32 @@ public sealed class ControlWindow : Window, IDisposable
     {
         var changed = ImGui.SliderFloat(label, ref value, 0f, 20f, "%.1f");
         if (changed)
+        {
             config.SongPlan = SongPlanMode.Custom;
+            config.Scenario = RotationScenario.Custom;
+        }
         return changed;
+    }
+
+    private void ScenarioButton(string label, RotationScenario scenario, Configuration config)
+    {
+        var selected = config.Scenario == scenario;
+        if (selected)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.15f, 0.55f, 0.75f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.2f, 0.65f, 0.88f, 1f));
+        }
+
+        if (ImGui.Button(label))
+            plugin.SelectScenario(scenario);
+
+        if (selected)
+            ImGui.PopStyleColor(2);
     }
 
     private static string SongPlanName(SongPlanMode mode) => mode switch
     {
-        SongPlanMode.GuideAuto => "NGA攻略自动轴",
+        SongPlanMode.GuideAuto => "旧NGA自动轴",
         SongPlanMode.Standard3312 => "Standard 3-3-12",
         SongPlanMode.Advanced369 => "Advanced 3-6-9",
         _ => "Custom 自定义",

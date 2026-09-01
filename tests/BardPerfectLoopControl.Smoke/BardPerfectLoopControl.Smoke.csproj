@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\..\Models.cs" Link="Models.cs" />
+    <Compile Include="..\..\ScenarioRules.cs" Link="ScenarioRules.cs" />
     <Compile Include="..\..\ActionCatalog.cs" Link="ActionCatalog.cs" />
     <Compile Include="..\..\GuideAxisRules.cs" Link="GuideAxisRules.cs" />
     <Compile Include="..\..\RotationMath.cs" Link="RotationMath.cs" />

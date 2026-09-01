@@ -40,6 +40,9 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
         ImGui.TextWrapped($"执行器：{plugin.Executor.Status}");
         ImGui.Separator();
 
+        DrawScenarioButtons();
+        ImGui.Separator();
+
         if (!plugin.Engine.Armed)
         {
             if (ImGui.Button("启动完全控制"))
@@ -64,7 +67,7 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
 
         ImGui.Spacing();
         ImGui.Text($"战斗时间：{snapshot.ElapsedSeconds:F2}s   GCD序号：{snapshot.GcdIndex}   下一GCD：{snapshot.UntilNextGcd:F2}s");
-        ImGui.Text($"本 GCD 能力技：{plugin.Executor.OgcdsThisCycle}/2   最短动作间隔：0.70s");
+        ImGui.Text($"本 GCD 能力技：{plugin.Executor.OgcdsThisCycle}/{plugin.Engine.OgcdLimitThisCycle}   最短动作间隔：0.70s");
         ImGui.Text($"循环配置：{plugin.Engine.ActiveProfileName}");
 
         ImGui.SetWindowFontScale(1.28f);
@@ -100,5 +103,29 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
             foreach (var cooldown in snapshot.MajorCooldowns)
                 ImGui.Text($"{cooldown.Name}：{(cooldown.Ready ? "READY" : $"{cooldown.Remaining:F1}s")}");
         }
+    }
+
+    private void DrawScenarioButtons()
+    {
+        ScenarioButton("通用3312", RotationScenario.CurrentStandard);
+        ImGui.SameLine();
+        ScenarioButton("2.49标准", RotationScenario.Standard249);
+        ImGui.SameLine();
+        ScenarioButton("2.50进阶", RotationScenario.Advanced369);
+        ImGui.SameLine();
+        ScenarioButton("上天恢复", RotationScenario.DowntimeRecovery);
+    }
+
+    private void ScenarioButton(string label, RotationScenario scenario)
+    {
+        var selected = plugin.Configuration.Scenario == scenario;
+        if (selected)
+            ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.15f, 0.55f, 0.75f, 1f));
+
+        if (ImGui.SmallButton(label))
+            plugin.SelectScenario(scenario);
+
+        if (selected)
+            ImGui.PopStyleColor();
     }
 }

@@ -18,8 +18,8 @@ public readonly record struct GuideSongPlan(
 }
 
 /// <summary>
-/// Pure rules extracted from the NGA 7.0 Bard guide. Timeline positions are targets;
-/// the live engine still uses the game's real cooldowns, statuses and song gauge.
+/// Pure song-axis and priority rules. Timeline positions are targets; the live
+/// engine still uses the game's real cooldowns, statuses and song gauge.
 /// </summary>
 public static class GuideAxisRules
 {
@@ -64,6 +64,15 @@ public static class GuideAxisRules
         soulVoice >= 80 &&
         (inBurstWindow || ragingCooldownRemaining is >= 50f and <= 62f);
 
+    public static bool ShouldUseCurrentApex(
+        byte soulVoice,
+        bool inBurstWindow,
+        bool inMagesBallad,
+        float songRemaining) =>
+        soulVoice >= 80 &&
+        (inBurstWindow ||
+         inMagesBallad && (soulVoice >= 100 || songRemaining <= 21f));
+
     public static bool ShouldHoldBloodletter(int charges, bool inBurstWindow, float ragingCooldownRemaining) =>
         charges < 3 && !inBurstWindow && ragingCooldownRemaining <= 30f;
 
@@ -71,6 +80,10 @@ public static class GuideAxisRules
         ActionCatalog.BattleVoice or
         ActionCatalog.RadiantFinale or
         ActionCatalog.RagingStrikes;
+
+    public static bool IsLateWeave(uint actionId, bool modernBurstOrder) => modernBurstOrder
+        ? actionId == ActionCatalog.RagingStrikes
+        : IsLateWeave(actionId);
 
     public static float LateWeaveGate(float gcdSeconds) =>
         Math.Clamp(gcdSeconds, 1.5f, 3.5f) * 0.52f;

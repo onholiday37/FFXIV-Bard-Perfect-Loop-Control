@@ -82,7 +82,7 @@ public sealed class ActionExecutor
                 activeGcdCycle = true;
                 OgcdsThisCycle = 0;
                 lastAcceptedActionAt = now;
-                Status = "GCD 已结算，本周期可插 0/2";
+                Status = $"GCD 已结算，本周期可插 0/{plugin.Engine.OgcdLimitThisCycle}";
             }
             else if (ElapsedSeconds(pendingGcdAt, now) > PendingGcdTimeoutSeconds)
             {
@@ -114,16 +114,19 @@ public sealed class ActionExecutor
                 gcdRemaining,
                 SecondsSinceLastAcceptedAction(now),
                 manager->AnimationLock,
-                manager->ActionQueued) &&
+                manager->ActionQueued,
+                plugin.Engine.OgcdLimitThisCycle) &&
             TryUse(manager, plugin.Engine.RecommendedOgcdActionId, target))
         {
             OgcdsThisCycle++;
             lastAcceptedActionAt = now;
-            Status = $"能力技已被游戏接受：{plugin.Engine.RecommendedOgcdName}（本周期 {OgcdsThisCycle}/2）";
+            Status = $"能力技已被游戏接受：{plugin.Engine.RecommendedOgcdName}（本周期 {OgcdsThisCycle}/{plugin.Engine.OgcdLimitThisCycle}）";
         }
-        else if (OgcdsThisCycle >= ExecutionRules.MaxOgcdPerGcd)
+        else if (OgcdsThisCycle >= plugin.Engine.OgcdLimitThisCycle)
         {
-            Status = "本 GCD 已完成双插，等待下一个 GCD";
+            Status = plugin.Engine.OgcdLimitThisCycle == 1
+                ? "军神满层加速：本 GCD 已单插，等待下一个 GCD"
+                : "本 GCD 已完成双插，等待下一个 GCD";
         }
         else if (activeGcdCycle &&
                  plugin.Engine.RecommendedOgcdRequiresLateWeave &&

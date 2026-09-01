@@ -77,6 +77,16 @@ public sealed class Plugin : IDalamudPlugin
 
     internal void ToggleConfig() => controlWindow.Toggle();
 
+    internal void SelectScenario(RotationScenario scenario)
+    {
+        Configuration.ApplyScenario(scenario);
+        if (Engine.Armed)
+        {
+            Engine.ResetTimeline();
+            Executor.Reset($"已切换：{ScenarioRules.Resolve(scenario).ShortName}");
+        }
+    }
+
     internal void StartControl()
     {
         TargetTracker.Reset();
@@ -119,7 +129,7 @@ public sealed class Plugin : IDalamudPlugin
                 StartControl();
                 Configuration.ShowOverlay = true;
                 Configuration.Save();
-                ChatGui.Print("[吟游完美轴·完全控制] NGA攻略轴已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
+                ChatGui.Print($"[吟游完美轴·完全控制] {ScenarioRules.Resolve(Configuration.Scenario).Name}已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
                 break;
             case "stop":
             case "停止":
