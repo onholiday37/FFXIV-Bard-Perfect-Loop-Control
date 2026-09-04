@@ -1,0 +1,18 @@
+Release: 1.0.0.0
+Dalamud API: 15
+Build: Release, 0 warnings, 0 errors
+Tests: 1893 assertions passed; 80 new-policy and 80 baseline 300-second simulations completed.
+Native game loading / combat: NOT VERIFIED in this release session.
+
+DLL SHA256:
+53BCA9110BE607C5E9EACEB90761E9C2952963852AEB47FCB871CE0D5A6BE96C
+
+Verified matching DLL bytes and assembly version at:
+1. Repository bin/Release/BardPerfectLoopControl.dll
+2. Desktop/吟游诗人完美轴-完全控制版/BardPerfectLoopControl.dll
+3. Desktop/吟游诗人完美轴-完全控制版/吟游诗人完美轴-完全控制版-1.0.0/BardPerfectLoopControl.dll
+
+JSON AssemblyVersion matches DLL: 1.0.0.0.
+Original 0.4.2 version folder retained, not overwritten.
+No Git push or release publication performed.
+Archive verification procedure: compare SHA256 of every non-directory ZIP entry with its packaged source file; reject any mismatch or unexpected entry count.

@@ -73,8 +73,20 @@ public static class GuideAxisRules
         (inBurstWindow ||
          inMagesBallad && (soulVoice >= 100 || songRemaining <= 21f));
 
-    public static bool ShouldHoldBloodletter(int charges, bool inBurstWindow, float ragingCooldownRemaining) =>
-        charges < 3 && !inBurstWindow && ragingCooldownRemaining <= 30f;
+    public static uint SelectImmediateOgcd(
+        bool pitchPerfectMustSpend,
+        bool empyrealArrowReady,
+        bool chargeShotReady,
+        uint chargeShotActionId)
+    {
+        if (pitchPerfectMustSpend)
+            return ActionCatalog.PitchPerfect;
+        if (empyrealArrowReady)
+            return ActionCatalog.EmpyrealArrow;
+        if (chargeShotReady)
+            return chargeShotActionId;
+        return 0;
+    }
 
     public static bool IsLateWeave(uint actionId) => actionId is
         ActionCatalog.BattleVoice or

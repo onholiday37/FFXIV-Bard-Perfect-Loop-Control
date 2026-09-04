@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.4.0.0</Version>
+    <Version>1.0.0.0</Version>
     <AssemblyName>BardPerfectLoopControl</AssemblyName>
     <Author>Codex / ouyan</Author>
     <Name>吟游诗人完美轴·完全控制版</Name>
     <Punchline>按场景切换当前标准、进阶、断轴恢复与自定义吟游轴。</Punchline>
-    <Description>吟游诗人完全控制轮转插件。0.4.0 新增场景轴小按钮：通用3-3-12、2.49标准、2.50进阶3-6-9、Boss上天/断轴恢复、旧NGA对照和Custom；当前轴采用新版团辅顺序、魂音窗口与安全DoT刷新，军神满层时限制单插。支持等级同步、真实CD重排与Boss复现恢复。</Description>
+    <Description>1.0 联合排程：九天/音调/碎心、团辅与其他进攻能力技，真实充能、DoT收益、等级同步和目标恢复；最多双插。仅本地模型与自动测试验证，不保证实战最优或免封号。</Description>
     <Tags>bard;rotation;control;timeline;吟游诗人;完全控制</Tags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

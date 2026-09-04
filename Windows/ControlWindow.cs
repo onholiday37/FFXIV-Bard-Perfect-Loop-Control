@@ -30,6 +30,11 @@ public sealed class ControlWindow : Window, IDisposable
 
         ImGui.TextColored(new Vector4(1f, 0.25f, 0.15f, 1f), "警告：这是完全控制版，启动后会自动释放技能。第三方插件可能导致封号，后果自负。");
         changed |= ImGui.Checkbox("启用插件", ref config.Enabled);
+        if (ImGui.Checkbox("仅影子观察（不发送技能，推荐先验收）", ref config.ShadowOnly))
+        {
+            plugin.StopControl("执行模式已切换，请手动重新启动");
+            changed = true;
+        }
         changed |= ImGui.Checkbox("显示控制状态窗", ref config.ShowOverlay);
         changed |= ImGui.Checkbox("战斗结束自动停止", ref config.StopWhenCombatEnds);
 
@@ -46,7 +51,7 @@ public sealed class ControlWindow : Window, IDisposable
 
         ImGui.Separator();
         ImGui.TextUnformatted("场景轴预设");
-        changed |= ImGui.Checkbox("启用实时完美轴（推荐）", ref config.GuidePerfectAxis);
+        changed |= ImGui.Checkbox("启用1.0联合排程（推荐）", ref config.GuidePerfectAxis);
         ImGui.TextDisabled("点一个小按钮即可换整套场景；运行中切换会丢弃旧时间点，并从当前真实状态重新排轴。");
 
         ScenarioButton("通用 3-3-12", RotationScenario.CurrentStandard, config);
@@ -80,19 +85,23 @@ public sealed class ControlWindow : Window, IDisposable
             config.ArmyCutRemaining);
         ImGui.Text($"当前歌轴：{SongPlanName(config.SongPlan)} → {resolvedPlan.Name}");
         ImGui.TextDisabled($"实际切点：旅神剩 {resolvedPlan.WandererCutRemaining:F0}s / 贤者剩 {resolvedPlan.MageCutRemaining:F0}s / 军神剩 {resolvedPlan.ArmyCutRemaining:F0}s");
-        ImGui.TextDisabled("攻略名称按诗心判定习惯写作3-3-12/3-6-9；游戏量谱的可执行切点分别是2-2-11/2-5-8。");
+        ImGui.TextDisabled("默认目标时长43/43/34或43/40/37秒；实际在安全插入窗口和真实歌曲CD允许时切换。");
+        ImGui.TextDisabled("自定义GCD用于预设/兜底；实际执行优先读取游戏当前冷却，包含军神加速。");
         changed |= CutSlider("旅神剩余秒数切歌", ref config.WandererCutRemaining, config);
         changed |= CutSlider("贤者剩余秒数切歌", ref config.MageCutRemaining, config);
         changed |= CutSlider("军神剩余秒数切歌", ref config.ArmyCutRemaining, config);
 
         ImGui.TextDisabled("按键由游戏当前热键栏自动读取；无需在插件中绑定，移动技能或修改键位后会自动更新。");
 
-        var lookAhead = config.OgcdLookAheadSeconds;
-        if (ImGui.SliderFloat("能力技 CD 提前观察（秒）", ref lookAhead, 0f, 1.5f, "%.2f"))
+        changed |= ImGui.SliderFloat("动作锁下限（秒）", ref config.ActionLockSeconds, 0.70f, 1.20f, "%.2f");
+        changed |= ImGui.SliderFloat("下一GCD安全余量（秒）", ref config.WeaveSafetyMargin, 0.02f, 0.30f, "%.2f");
+        changed |= ImGui.SliderFloat("模型基础直击率估计", ref config.AssumedDirectHitRate, 0f, 0.80f, "%.2f");
+        if (ImGui.SliderFloat("目标预计剩余可攻击秒数（0=未知）", ref config.TargetLifetimeSeconds, 0f, 300f, "%.0f"))
         {
-            config.OgcdLookAheadSeconds = lookAhead;
+            plugin.Engine.ResetTargetEstimate();
             changed = true;
         }
+        ImGui.TextDisabled("预计时间由你提供，不会自动猜Boss上天；模型不是装备换算后的实际DPS。");
 
         var queueWindow = config.GcdQueueWindowSeconds;
         if (ImGui.SliderFloat("GCD 排队窗口（秒）", ref queueWindow, 0.05f, 0.50f, "%.2f"))
@@ -107,22 +116,12 @@ public sealed class ControlWindow : Window, IDisposable
 
         ImGui.Separator();
         ImGui.TextUnformatted("DoT 持续伤害计算");
-        changed |= ImGui.Checkbox("刷新窗口随 GCD 自动计算（GCD + 0.25秒）", ref config.DynamicDotRefreshWindow);
-        if (!config.DynamicDotRefreshWindow)
+        ImGui.TextWrapped("1.0按实际GCD决定末段刷新，计算目标存活时间内的DoT增量与GCD机会成本；只在确认过自身快照后评估提前更新。");
+        ImGui.TextDisabled("服务器跳伤相位未知时按剩余时间/3取期望，不再向上取整假装一定能跳到。");
+        if (!config.GuidePerfectAxis)
         {
-            var refreshLead = config.DotRefreshLeadSeconds;
-            if (ImGui.SliderFloat("固定 DoT 刷新窗口（秒）", ref refreshLead, 1f, 12f, "%.1f"))
-            {
-                config.DotRefreshLeadSeconds = refreshLead;
-                changed = true;
-            }
-        }
-
-        var tickSeconds = config.DotTickSeconds;
-        if (ImGui.SliderFloat("每跳间隔（秒）", ref tickSeconds, 1f, 5f, "%.1f"))
-        {
-            config.DotTickSeconds = tickSeconds;
-            changed = true;
+            changed |= ImGui.Checkbox("自定义列表：动态DoT条件窗口", ref config.DynamicDotRefreshWindow);
+            changed |= ImGui.SliderFloat("自定义列表：固定DoT条件窗口", ref config.DotRefreshLeadSeconds, 1f, 12f, "%.1f");
         }
 
         var causticPotency = config.CausticTickPotency;

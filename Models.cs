@@ -77,15 +77,15 @@ public sealed record DotAnalysis(
     string StormName,
     float CausticRemaining,
     float StormRemaining,
-    int CausticTicksRemaining,
-    int StormTicksRemaining,
-    int CausticRemainingPotency,
-    int StormRemainingPotency,
+    double CausticTicksRemaining,
+    double StormTicksRemaining,
+    double CausticRemainingPotency,
+    double StormRemainingPotency,
     bool CausticMissing,
     bool StormMissing,
     bool RefreshDue)
 {
-    public int TotalRemainingPotency => CausticRemainingPotency + StormRemainingPotency;
+    public double TotalRemainingPotency => CausticRemainingPotency + StormRemainingPotency;
 }
 
 public sealed record CooldownAnalysis(string Name, uint ActionId, float Remaining, bool Ready);

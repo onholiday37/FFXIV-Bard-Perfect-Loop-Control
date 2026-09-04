@@ -1,5 +1,6 @@
 using System;
-using System.Diagnostics;
+using System.Collections.Generic;
+using System.Linq;
 using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
 
@@ -7,197 +8,145 @@ namespace BardPerfectLoop;
 
 public sealed class ActionExecutor
 {
-    private const double PendingGcdTimeoutSeconds = 2.0;
-
     private readonly Plugin plugin;
     private readonly Configuration configuration;
-
-    private long lastAcceptedActionAt;
-    private long pendingGcdAt;
-    private float previousGcdRemaining = -1f;
-    private bool pendingGcd;
-    private bool activeGcdCycle;
+    private readonly Queue<string> trace = new();
+    private readonly Dictionary<uint, double> rejectedUntil = [];
+    private uint pendingAction;
+    private double pendingAt;
+    private double sessionStarted;
     private bool inDowntime;
-    private long downtimeStartedAt;
-
-    public int OgcdsThisCycle { get; private set; }
+    private double downtimeAt;
+    public ActionTimeline Timeline { get; } = new();
+    public int OgcdsThisCycle => Timeline.Ogcds;
     public string Status { get; private set; } = "未启动";
     public bool InDowntime => inDowntime;
     public double LastDowntimeSeconds { get; private set; }
+    public string DiagnosticText => string.Join(Environment.NewLine, trace);
+    public IReadOnlySet<uint> RejectedActions => rejectedUntil.Where(p => p.Value > ActionObserver.Now).Select(p => p.Key).ToHashSet();
 
     public ActionExecutor(Plugin plugin, Configuration configuration)
     {
-        this.plugin = plugin;
-        this.configuration = configuration;
+        this.plugin = plugin; this.configuration = configuration;
     }
-
     public void Reset(string status = "执行器已重置")
     {
-        lastAcceptedActionAt = 0;
-        pendingGcdAt = 0;
-        previousGcdRemaining = -1f;
-        pendingGcd = false;
-        activeGcdCycle = false;
-        inDowntime = false;
-        downtimeStartedAt = 0;
-        OgcdsThisCycle = 0;
-        Status = status;
+        Timeline.Reset(); pendingAction = 0; rejectedUntil.Clear(); inDowntime = false; Status = status;
+        sessionStarted = ActionObserver.Now;
+        Trace(status);
+    }
+    private void Trace(string message)
+    {
+        trace.Enqueue($"{ActionObserver.Now:F3} {message}");
+        while (trace.Count > 300) trace.Dequeue();
+    }
+
+    internal void Observe()
+    {
+        while (plugin.Observer.TryRead(out var action))
+        {
+            if (!plugin.Engine.Armed || action.Time < sessionStarted) continue;
+            var gcd = action.Type == ActionType.Action && ActionCatalog.IsGcd(action.Id);
+            Timeline.RecordExecuted(gcd, action.Time);
+            // Manual execution invalidates a queued prediction too.
+            pendingAction = 0;
+            if (action.Type == ActionType.Action)
+                plugin.Engine.OnClientExecuted(action.Id, action.Target, action.Time, action.RepertoireBefore, action.SoulBefore, action.CodaBefore);
+            Trace($"CLIENT_EXECUTED id={action.Id} gcd={gcd} slots={Timeline.Ogcds} | {plugin.Engine.LastPlannerInputs}");
+        }
+        if (plugin.Observer.Failed && plugin.Engine.Armed)
+            plugin.StopControl("动作观察器异常，已停止，未继续发送技能");
     }
 
     public unsafe void Update()
     {
-        if (!plugin.Engine.Armed || !plugin.Engine.Snapshot.Running)
-            return;
-
+        if (!plugin.Engine.Armed || !plugin.Engine.Snapshot.Running) return;
+        if (configuration.ShadowOnly) { Status = "仅影子观察：不发送任何技能；可手动操作检查建议"; return; }
         var manager = ActionManager.Instance();
-        if (manager is null)
+        if (manager is null) { Status = "动作管理器不可用"; return; }
+        var now = ActionObserver.Now;
+        if (pendingAction != 0)
         {
-            Status = "动作管理器不可用，未发送动作";
+            if (now - pendingAt > 2)
+                plugin.StopControl("已接受的动作未观察到执行，停止以防重复发送");
             return;
         }
-
         var target = plugin.ResolveBattleTarget();
         if (target is null)
         {
-            EnterDowntime();
+            if (!inDowntime) { inDowntime = true; downtimeAt = now; Trace("TARGET_UNAVAILABLE"); }
+            Status = "无可攻击目标：停火，检查索敌/射程，等待原目标或手动选择新目标";
             return;
         }
-
         if (inDowntime)
-            LeaveDowntime();
-
-        var now = Stopwatch.GetTimestamp();
-        var gcdRemaining = ReadGcdRemaining(manager, plugin.Engine.GcdReferenceActionId);
-
-        if (pendingGcd)
         {
-            var recastRestarted = ExecutionRules.DidGcdRecastRestart(
-                previousGcdRemaining,
-                gcdRemaining,
-                configuration.GcdSeconds,
-                configuration.GcdQueueWindowSeconds);
-            if (recastRestarted)
-            {
-                pendingGcd = false;
-                activeGcdCycle = true;
-                OgcdsThisCycle = 0;
-                lastAcceptedActionAt = now;
-                Status = $"GCD 已结算，本周期可插 0/{plugin.Engine.OgcdLimitThisCycle}";
-            }
-            else if (ElapsedSeconds(pendingGcdAt, now) > PendingGcdTimeoutSeconds)
-            {
-                pendingGcd = false;
-                Status = "GCD 排队未结算，已放弃旧动作并重算";
-            }
+            LastDowntimeSeconds = now - downtimeAt; inDowntime = false;
+            Trace($"TARGET_RETURN downtime={LastDowntimeSeconds:F2}; real state replanned");
         }
+        if (manager->ActionQueued) { Status = "已有游戏动作排队，保留玩家队列"; return; }
 
-        if (!pendingGcd &&
-            plugin.Engine.RecommendedGcdActionId != 0 &&
-            gcdRemaining <= Math.Clamp(configuration.GcdQueueWindowSeconds, 0.05f, 0.50f) &&
-            IntervalSatisfied(now) &&
-            TryUse(manager, plugin.Engine.RecommendedGcdActionId, target))
+        var timing = LiveCombatReader.Gcd(plugin.Engine.GcdReferenceActionId, configuration.GcdSeconds);
+        if (timing.Remaining <= Math.Clamp(configuration.GcdQueueWindowSeconds, 0.05f, 0.50f))
         {
-            pendingGcd = true;
-            pendingGcdAt = now;
-            Status = $"GCD 已送入游戏队列：{plugin.Engine.RecommendedGcdName}";
-            previousGcdRemaining = gcdRemaining;
+            if (Timeline.EarliestWeave(now, 0) > timing.Remaining + 0.001f) return;
+            if (plugin.Engine.RecommendedGcdActionId != 0)
+                TryUse(manager, plugin.Engine.RecommendedGcdActionId, target, true);
             return;
         }
+        if (!Timeline.ActiveCycle || Timeline.Ogcds >= plugin.Engine.OgcdLimitThisCycle)
+        {
+            Status = "等待下一个GCD；不补第三插或加速期的第二插";
+            return;
+        }
+        if (Timeline.EarliestWeave(now, manager->AnimationLock) > 0f ||
+            !CombatTiming.Fits(0, timing.Remaining, plugin.Engine.EffectiveActionLock, configuration.WeaveSafetyMargin))
+            return;
 
-        if (activeGcdCycle &&
-            !pendingGcd &&
-            plugin.Engine.RecommendedOgcdActionId != 0 &&
-            (!plugin.Engine.RecommendedOgcdRequiresLateWeave ||
-             gcdRemaining <= GuideAxisRules.LateWeaveGate(configuration.GcdSeconds)) &&
-            ExecutionRules.CanAttemptOgcd(
-                OgcdsThisCycle,
-                gcdRemaining,
-                SecondsSinceLastAcceptedAction(now),
-                manager->AnimationLock,
-                manager->ActionQueued,
-                plugin.Engine.OgcdLimitThisCycle) &&
-            TryUse(manager, plugin.Engine.RecommendedOgcdActionId, target))
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            OgcdsThisCycle++;
-            lastAcceptedActionAt = now;
-            Status = $"能力技已被游戏接受：{plugin.Engine.RecommendedOgcdName}（本周期 {OgcdsThisCycle}/{plugin.Engine.OgcdLimitThisCycle}）";
+            var choice = plugin.Engine.CurrentWeavePlan.First;
+            if (choice is null || choice.Value.At > 0f)
+            {
+                Status = plugin.Engine.CurrentWeavePlan.Reason;
+                return;
+            }
+            if (choice.Value.ActionId == ActionCatalog.PitchPerfect && plugin.Engine.ActualRepertoire < choice.Value.ExpectedRepertoire)
+            {
+                Status = "等待实际诗心到账，不按预测层数提前释放音调";
+                return;
+            }
+            if (TryUse(manager, choice.Value.ActionId, target, false)) return;
+            if (manager->ActionQueued || manager->AnimationLock > 0.01f || pendingAction != 0) return;
+            plugin.Engine.ReplanOgcd();
         }
-        else if (OgcdsThisCycle >= plugin.Engine.OgcdLimitThisCycle)
-        {
-            Status = plugin.Engine.OgcdLimitThisCycle == 1
-                ? "军神满层加速：本 GCD 已单插，等待下一个 GCD"
-                : "本 GCD 已完成双插，等待下一个 GCD";
-        }
-        else if (activeGcdCycle &&
-                 plugin.Engine.RecommendedOgcdRequiresLateWeave &&
-                 gcdRemaining > GuideAxisRules.LateWeaveGate(configuration.GcdSeconds))
-        {
-            Status = "攻略团辅等待后半 GCD，争取覆盖 9/9";
-        }
-
-        previousGcdRemaining = gcdRemaining;
     }
 
-    private void EnterDowntime()
+    private unsafe bool TryUse(ActionManager* manager, uint action, IBattleChara target, bool gcd)
     {
-        if (!inDowntime)
-        {
-            inDowntime = true;
-            downtimeStartedAt = Stopwatch.GetTimestamp();
-            pendingGcd = false;
-            activeGcdCycle = false;
-            OgcdsThisCycle = 0;
-        }
-
-        Status = "目标不可选：停火，保留歌曲与真实 CD，等待 Boss 复现";
+        var now = ActionObserver.Now;
+        if (rejectedUntil.TryGetValue(action, out var blocked) && blocked > now) return false;
+        var adjusted = manager->GetAdjustedActionId(action);
+        if (plugin.EffectiveLevel < ActionCatalog.MinimumLevel(action)) return Reject(action, "not learned");
+        // Only intentional GCD queueing skips the active-recast status check.
+        if (!gcd && LiveCombatReader.Cooldown(action, plugin.EffectiveLevel) > 0f)
+            return false; // A future-ready plan is a wait, NOT a rejected action.
+        var targetId = LiveCombatReader.TargetFor(action, target.GameObjectId);
+        var status = manager->GetActionStatus(ActionType.Action, adjusted, targetId, !gcd, true, null);
+        if (status != 0) return Reject(action, $"status={status}");
+        if (gcd && manager->AnimationLock > 0.5f) return false;
+        var accepted = manager->UseAction(ActionType.Action, adjusted, targetId, 0, ActionManager.UseActionMode.None, 0, null);
+        if (!accepted) return Reject(action, "native=false");
+        pendingAction = action; pendingAt = now;
+        Status = $"已接受/排队：{WeavePlanner.Name(action)}；等待客户端执行记录";
+        Trace($"ACCEPTED id={action} queued={manager->ActionQueued} | {plugin.Engine.CurrentWeavePlan.Reason}");
+        Observe();
+        return true;
     }
-
-    private void LeaveDowntime()
+    private bool Reject(uint action, string reason)
     {
-        var now = Stopwatch.GetTimestamp();
-        LastDowntimeSeconds = ElapsedSeconds(downtimeStartedAt, now);
-        inDowntime = false;
-        pendingGcd = false;
-        activeGcdCycle = false;
-        OgcdsThisCycle = 0;
-        previousGcdRemaining = -1f;
-        lastAcceptedActionAt = 0;
-        Status = $"目标恢复（停火 {LastDowntimeSeconds:F1}s），已按当前 CD、歌曲与 DoT 重新规划";
-    }
-
-    private bool IntervalSatisfied(long now) =>
-        SecondsSinceLastAcceptedAction(now) >= ExecutionRules.MinimumActionIntervalSeconds;
-
-    private double SecondsSinceLastAcceptedAction(long now) =>
-        lastAcceptedActionAt == 0 ? double.PositiveInfinity : ElapsedSeconds(lastAcceptedActionAt, now);
-
-    private static double ElapsedSeconds(long startedAt, long now) =>
-        startedAt == 0 ? double.PositiveInfinity : (now - startedAt) / (double)Stopwatch.Frequency;
-
-    private static unsafe float ReadGcdRemaining(ActionManager* manager, uint gcdReferenceActionId)
-    {
-        if (!manager->IsRecastTimerActive(ActionType.Action, gcdReferenceActionId))
-            return 0f;
-
-        var total = manager->GetRecastTime(ActionType.Action, gcdReferenceActionId);
-        var elapsed = manager->GetRecastTimeElapsed(ActionType.Action, gcdReferenceActionId);
-        return Math.Max(0f, total - elapsed);
-    }
-
-    private static unsafe bool TryUse(ActionManager* manager, uint actionId, IBattleChara target)
-    {
-        var adjustedActionId = manager->GetAdjustedActionId(actionId);
-        var status = manager->GetActionStatus(ActionType.Action, adjustedActionId, target.GameObjectId, false, false, null);
-        if (status != 0)
-            return false;
-
-        return manager->UseAction(
-            ActionType.Action,
-            adjustedActionId,
-            target.GameObjectId,
-            0,
-            ActionManager.UseActionMode.None,
-            0,
-            null);
+        rejectedUntil[action] = ActionObserver.Now + 0.20;
+        Trace($"REJECTED id={action} {reason}");
+        Status = $"{WeavePlanner.Name(action)}暂不可用，重算其他安全候选";
+        return false;
     }
 }

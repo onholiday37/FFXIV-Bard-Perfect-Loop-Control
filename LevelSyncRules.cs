@@ -35,12 +35,15 @@ public static class LevelSyncRules
 
     public static RotationStep? SelectOgcd(int level, IReadOnlySet<uint> readyActionIds)
     {
+        var chargeAction = level >= 92 ? ActionCatalog.HeartbreakShot : ActionCatalog.Bloodletter;
+        var chargeName = level >= 92 ? "碎心箭" : "失血箭";
+        var chargeLevel = level >= 92 ? 92 : 12;
         var candidates = new[]
         {
             (ActionCatalog.RagingStrikes, "猛者强击", 4),
             (ActionCatalog.BattleVoice, "战斗之声", 50),
             (ActionCatalog.Barrage, "纷乱箭", 38),
-            (ActionCatalog.Bloodletter, "失血箭", 12),
+            (chargeAction, chargeName, chargeLevel),
         };
 
         foreach (var candidate in candidates)

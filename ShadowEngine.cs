@@ -9,7 +9,7 @@ using GaugeSong = Dalamud.Game.ClientState.JobGauge.Enums.Song;
 
 namespace BardPerfectLoop;
 
-public sealed class ShadowEngine
+public sealed partial class ShadowEngine
 {
     private static readonly HashSet<uint> CausticStatuses = [124, 1200];
     private static readonly HashSet<uint> StormStatuses = [129, 1201];
@@ -46,6 +46,10 @@ public sealed class ShadowEngine
     public void Arm()
     {
         Armed = true;
+        dotLedger.Invalidate();
+        lifeTarget = 0;
+        pendingEmpyrealAt = double.NegativeInfinity;
+        observedActionLock = 0.70f;
         wasInCombat = false;
         lastKnownSong = GaugeSong.None;
         OgcdLimitThisCycle = ExecutionRules.MaxOgcdPerGcd;
@@ -57,6 +61,7 @@ public sealed class ShadowEngine
         Armed = false;
         wasInCombat = false;
         ClearRecommendations();
+        CurrentWeavePlan = WeavePlan.Empty(reason);
         Snapshot = ShadowSnapshot.Idle(reason);
     }
 
@@ -122,12 +127,9 @@ public sealed class ShadowEngine
     private ShadowSnapshot BuildSnapshot()
     {
         var elapsed = Stopwatch.GetElapsedTime(combatStartedAt).TotalSeconds;
-        var gcd = Math.Clamp(configuration.GcdSeconds, 1.5f, 3.5f);
-        var gcdIndex = (long)Math.Floor(elapsed / gcd) + 1;
-        var withinGcd = elapsed % gcd;
-        var untilNextGcd = (float)(gcd - withinGcd);
-        if (untilNextGcd >= gcd - 0.001f)
-            untilNextGcd = 0;
+        var timing = LiveCombatReader.Gcd(GcdReferenceActionId, configuration.GcdSeconds);
+        var gcdIndex = plugin.Executor.Timeline.GcdCount;
+        var untilNextGcd = timing.Remaining;
 
         var gauge = Plugin.JobGauges.Get<BRDGauge>();
         OgcdLimitThisCycle = gauge.Song == GaugeSong.ArmysPaeon && gauge.Repertoire >= 4
@@ -136,66 +138,28 @@ public sealed class ShadowEngine
         var dots = AnalyzeDots();
         var song = AnalyzeSong(gauge);
         var cooldowns = AnalyzeMajorCooldowns();
-        var useGuideAxis = configuration.GuidePerfectAxis && !UsesLevel50Profile;
+        var useGuideAxis = configuration.GuidePerfectAxis || UsesLevel50Profile;
         var nextGcdStep = useGuideAxis
             ? FindGuideGcd(dots, gauge)
             : FindRecommendation(ShadowActionKind.Gcd, dots, gauge, cooldowns);
-        var nextOgcdStep = useGuideAxis
-            ? FindGuideOgcd(gauge)
-            : FindRecommendation(ShadowActionKind.Ogcd, dots, gauge, cooldowns);
+        var nextOgcdStep = FindGuideOgcd(gauge);
 
         RecommendedGcdActionId = nextGcdStep?.ActionId ?? 0;
         RecommendedOgcdActionId = nextOgcdStep?.ActionId ?? 0;
         RecommendedGcdName = nextGcdStep?.Name ?? string.Empty;
         RecommendedOgcdName = nextOgcdStep?.Name ?? string.Empty;
-        RecommendedOgcdRequiresLateWeave = nextOgcdStep is not null && GuideAxisRules.IsLateWeave(
-            nextOgcdStep.ActionId,
-            ScenarioRules.Resolve(configuration.Scenario).UsesModernBurstOrder);
+        RecommendedOgcdRequiresLateWeave = false;
 
         var nextGcd = nextGcdStep is null ? "无可用 GCD 建议" : FormatStep(nextGcdStep);
         var nextOgcd = nextOgcdStep is null ? "暂不插入能力技" : FormatStep(nextOgcdStep);
-        var reason = nextGcdStep is null ? string.Empty : Explain(nextGcdStep, dots);
+        var reason = nextGcdStep is null ? string.Empty : useGuideAxis ? LastGcdReason : Explain(nextGcdStep, dots);
 
-        if (song is null)
-        {
-            var songChoice = ChooseReadySong(lastKnownSong);
-            if (songChoice is not null)
-            {
-                RecommendedOgcdActionId = songChoice.Value.ActionId;
-                RecommendedOgcdName = $"开启{songChoice.Value.Name}的歌";
-                RecommendedOgcdRequiresLateWeave = false;
-                nextOgcd = FormatAction(songChoice.Value.ActionId, RecommendedOgcdName);
-            }
-        }
-        else if (song.UntilSwitch <= configuration.OgcdLookAheadSeconds)
-        {
-            if (gauge.Song == GaugeSong.WanderersMinuet && gauge.Repertoire > 0 && IsActionLearned(ActionCatalog.PitchPerfect))
-            {
-                RecommendedOgcdActionId = ActionCatalog.PitchPerfect;
-                RecommendedOgcdName = $"切歌前释放{gauge.Repertoire}层完美音调";
-                RecommendedOgcdRequiresLateWeave = false;
-                nextOgcd = FormatAction(RecommendedOgcdActionId, RecommendedOgcdName);
-            }
-            else if (gauge.Song == GaugeSong.MagesBallad && IsActionReadyNow(ActionCatalog.EmpyrealArrow))
-            {
-                RecommendedOgcdActionId = ActionCatalog.EmpyrealArrow;
-                RecommendedOgcdName = "切歌前释放九天连箭";
-                RecommendedOgcdRequiresLateWeave = false;
-                nextOgcd = FormatAction(RecommendedOgcdActionId, RecommendedOgcdName);
-            }
-            else if (ChooseReadySong(gauge.Song) is { } songChoice)
-            {
-                RecommendedOgcdActionId = songChoice.ActionId;
-                RecommendedOgcdName = $"切换{songChoice.Name}";
-                RecommendedOgcdRequiresLateWeave = false;
-                nextOgcd = FormatAction(songChoice.ActionId, RecommendedOgcdName);
-            }
-        }
+        reason += $"；{LastDotDecision.Reason}；{CurrentWeavePlan.Reason}";
 
         return new ShadowSnapshot(
             true,
             true,
-            "完全控制运行中",
+            configuration.ShadowOnly ? "影子观察运行中（不发送技能）" : "完全控制运行中",
             elapsed,
             gcdIndex,
             untilNextGcd,
@@ -207,167 +171,48 @@ public sealed class ShadowEngine
             cooldowns);
     }
 
-    private RotationStep FindGuideGcd(DotAnalysis? dots, BRDGauge gauge)
+    private RotationStep? FindGuideGcd(DotAnalysis? dots, BRDGauge gauge)
     {
-        var level = plugin.EffectiveLevel;
-        var stormAction = level >= 64 ? ActionCatalog.Stormbite : ActionCatalog.Windbite;
-        var causticAction = level >= 64 ? ActionCatalog.CausticBite : ActionCatalog.VenomousBite;
-        var stormName = level >= 64 ? "狂风蚀箭" : "风蚀箭";
-        var causticName = level >= 64 ? "烈毒咬箭" : "毒咬箭";
-        var refreshWindow = configuration.DynamicDotRefreshWindow
-            ? RotationMath.DynamicDotRefreshWindow(configuration.GcdSeconds)
-            : Math.Clamp(configuration.DotRefreshLeadSeconds, 1f, 12f);
-
-        // NGA opener applies Stormbite first, then Caustic Bite.
-        if (level >= 30 && dots?.StormMissing == true)
-            return MakeStep(stormAction, stormName, ShadowActionKind.Gcd, StepCondition.StormMissing, 200);
-        if (level >= 6 && dots?.CausticMissing == true)
-            return MakeStep(causticAction, causticName, ShadowActionKind.Gcd, StepCondition.CausticMissing, 195);
-
-        if (HasPlayerStatus(ActionCatalog.Buffs.Barrage))
+        var target = plugin.ResolveBattleTarget();
+        if (target is null) return null;
+        var timing = LiveCombatReader.Gcd(GcdReferenceActionId, configuration.GcdSeconds);
+        var snapshots = dotLedger.Read(target.GameObjectId);
+        var buffLeft = new[] { PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes),
+            PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice), PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale) }
+            .Where(t => t > 0).DefaultIfEmpty(0).Min();
+        var state = new GcdState
         {
-            var action = level >= 70 ? ActionCatalog.RefulgentArrow : ActionCatalog.StraightShot;
-            var name = level >= 70 ? "纷乱辉煌箭" : "纷乱直线射击";
-            return MakeStep(action, name, ShadowActionKind.Gcd, StepCondition.RefulgentReady, 190);
-        }
-
-        var ragingRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes);
-        var radiantRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale);
-        if (IsActionLearned(ActionCatalog.RadiantEncore) &&
-            HasPlayerStatus(ActionCatalog.Buffs.RadiantEncoreReady) &&
-            ragingRemaining > 0f &&
-            radiantRemaining < 16f)
-            return MakeStep(ActionCatalog.RadiantEncore, "光明神的返场余音", ShadowActionKind.Gcd, StepCondition.RadiantEncoreReady, 185);
-
-        if (IsActionLearned(ActionCatalog.BlastArrow) && HasPlayerStatus(ActionCatalog.Buffs.BlastArrowReady))
-            return MakeStep(ActionCatalog.BlastArrow, "爆破箭", ShadowActionKind.Gcd, StepCondition.BlastArrowReady, 180);
-
-        var ragingCooldown = ReadCooldownRemaining(ActionCatalog.RagingStrikes);
-        var inBurstWindow = ragingRemaining > 0f;
-        var scenario = ScenarioRules.Resolve(configuration.Scenario);
-        var songRemaining = Math.Max(0f, gauge.SongTimer / 1000f);
-        var useApex = scenario.UsesCurrentApexRules
-            ? GuideAxisRules.ShouldUseCurrentApex(
-                gauge.SoulVoice,
-                inBurstWindow,
-                gauge.Song == GaugeSong.MagesBallad,
-                songRemaining)
-            : GuideAxisRules.ShouldUseApex(gauge.SoulVoice, inBurstWindow, ragingCooldown);
-        if (IsActionLearned(ActionCatalog.ApexArrow) &&
-            useApex)
-            return MakeStep(ActionCatalog.ApexArrow, $"绝峰箭（魂音 {gauge.SoulVoice}）", ShadowActionKind.Gcd, StepCondition.SoulVoiceEighty, 175);
-
-        if (IsActionLearned(ActionCatalog.ResonantArrow) && HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady))
-            return MakeStep(ActionCatalog.ResonantArrow, "共鸣箭", ShadowActionKind.Gcd, StepCondition.ResonantArrowReady, 170);
-
-        var snapshotDue = scenario.UsesLegacyDotSnapshot && dots is not null && GuideAxisRules.ShouldSnapshotDots(
-            dots.CausticRemaining,
-            dots.StormRemaining,
-            ragingRemaining);
-        if (level >= 56 && dots is not null && (snapshotDue || dots.RefreshDue))
-            return MakeStep(
-                ActionCatalog.IronJaws,
-                snapshotDue ? "伶牙俐齿（猛者末段截毒）" : "伶牙俐齿",
-                ShadowActionKind.Gcd,
-                snapshotDue ? StepCondition.DotSnapshotDue : StepCondition.DotRefreshDue,
-                165);
-
-        if (level < 56 && dots is not null)
+            Level = plugin.EffectiveLevel, Gcd = timing.Total, ExecuteIn = timing.Remaining, ApplicationDelay = EffectiveActionLock,
+            Lifetime = TargetLifetime(), KnownEnd = configuration.TargetLifetimeSeconds > 0,
+            Caustic = dots?.CausticRemaining ?? 0, Storm = dots?.StormRemaining ?? 0,
+            CausticMultiplier = snapshots.Caustic, StormMultiplier = snapshots.Storm,
+            SnapshotsKnown = snapshots.Known, Multiplier = CurrentMultiplier(timing.Remaining), BuffLeft = buffLeft,
+            RagingLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes), RagingReady = ReadCooldownRemaining(ActionCatalog.RagingStrikes),
+            BarrageLeft = PlayerStatusRemaining(ActionCatalog.Buffs.Barrage), HawksEyeLeft = PlayerStatusRemaining(ActionCatalog.Buffs.HawksEye),
+            BlastLeft = PlayerStatusRemaining(ActionCatalog.Buffs.BlastArrowReady), ResonantLeft = PlayerStatusRemaining(ActionCatalog.Buffs.ResonantArrowReady),
+            EncoreLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RadiantEncoreReady), Soul = gauge.SoulVoice,
+            Song = gauge.Song switch { GaugeSong.WanderersMinuet => BardSong.Wanderer, GaugeSong.MagesBallad => BardSong.Mage, GaugeSong.ArmysPaeon => BardSong.Army, _ => BardSong.None },
+            SongRemaining = gauge.SongTimer / 1000f,
+            CausticPotency = plugin.EffectiveLevel < 64 ? 15 : configuration.CausticTickPotency,
+            StormPotency = plugin.EffectiveLevel < 64 ? 20 : configuration.StormTickPotency,
+        };
+        var result = GcdPlanner.Select(state);
+        LastGcdReason = result.Reason;
+        LastDotDecision = result.Dots;
+        return result.Action == 0 ? null : MakeStep(result.Action, result.Action switch
         {
-            if (level >= 30 && dots.StormRemaining <= refreshWindow)
-                return MakeStep(stormAction, stormName, ShadowActionKind.Gcd, StepCondition.DotRefreshDue, 160);
-            if (level >= 6 && dots.CausticRemaining <= refreshWindow)
-                return MakeStep(causticAction, causticName, ShadowActionKind.Gcd, StepCondition.DotRefreshDue, 155);
-        }
-
-        if (level >= 2 && (HasPlayerStatus(ActionCatalog.Buffs.HawksEye) || IsActionHighlighted(ActionCatalog.RefulgentArrow)))
-        {
-            var action = level >= 70 ? ActionCatalog.RefulgentArrow : ActionCatalog.StraightShot;
-            var name = level >= 70 ? "辉煌箭" : "直线射击";
-            return MakeStep(action, name, ShadowActionKind.Gcd, StepCondition.RefulgentReady, 150);
-        }
-
-        var filler = level >= 76 ? ActionCatalog.BurstShot : ActionCatalog.HeavyShot;
-        return MakeStep(filler, level >= 76 ? "爆发射击" : "强力射击", ShadowActionKind.Gcd, StepCondition.Always, 10);
+            ActionCatalog.VenomousBite => "毒咬箭", ActionCatalog.Windbite => "风蚀箭",
+            ActionCatalog.HeavyShot => "强力射击", ActionCatalog.StraightShot => "直线射击",
+            _ => WeavePlanner.Name(result.Action),
+        }, ShadowActionKind.Gcd, StepCondition.Always, 100);
     }
 
     private RotationStep? FindGuideOgcd(BRDGauge gauge)
     {
-        var songActive = gauge.Song != GaugeSong.None && gauge.SongTimer > 0;
-
-        if (gauge.Song == GaugeSong.WanderersMinuet &&
-            IsActionLearned(ActionCatalog.PitchPerfect) &&
-            (gauge.Repertoire >= 3 ||
-             gauge.Repertoire >= 2 && ReadCooldownRemaining(ActionCatalog.EmpyrealArrow) < 2f))
-            return MakeStep(ActionCatalog.PitchPerfect, "完美音调", ShadowActionKind.Ogcd, StepCondition.RepertoireThree, 250);
-
-        // The guide's central rule: Empyreal Arrow must not drift, and two uses
-        // should land inside a 20-second party-buff window whenever cooldown permits.
-        if (songActive && IsActionReadyNow(ActionCatalog.EmpyrealArrow))
-            return MakeStep(ActionCatalog.EmpyrealArrow, "九天连箭（好了就打）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 245);
-
-        // One GCD of lead is reserved so the party buffs can be staged before
-        // Raging Strikes without drifting the real cooldown anchor.
-        var ragingReady = ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 2.2f;
-        var ragingRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes);
-        var battleVoiceRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice);
-        var radiantRemaining = PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale);
-        var battleVoiceCooldown = ReadCooldownRemaining(ActionCatalog.BattleVoice);
-        var radiantCooldown = ReadCooldownRemaining(ActionCatalog.RadiantFinale);
-
-        if (songActive && ragingReady)
-        {
-            var scenario = ScenarioRules.Resolve(configuration.Scenario);
-            if (scenario.UsesModernBurstOrder)
-            {
-                if (IsActionReadyNow(ActionCatalog.RadiantFinale))
-                    return MakeStep(ActionCatalog.RadiantFinale, "光明神的最终乐章（当前轴先开）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 240);
-
-                var radiantStarted = !IsActionLearned(ActionCatalog.RadiantFinale) ||
-                                     radiantRemaining > 0f ||
-                                     radiantCooldown > 90f;
-                if (radiantStarted && IsActionReadyNow(ActionCatalog.BattleVoice))
-                    return MakeStep(ActionCatalog.BattleVoice, "战斗之声（与光明神双插）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 235);
-
-                var battleVoiceStarted = !IsActionLearned(ActionCatalog.BattleVoice) ||
-                                         battleVoiceRemaining > 0f ||
-                                         battleVoiceCooldown > 100f;
-                if (radiantStarted && battleVoiceStarted && IsActionReadyNow(ActionCatalog.RagingStrikes))
-                    return MakeStep(ActionCatalog.RagingStrikes, "猛者强击（下一GCD后半插）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 230);
-            }
-            else
-            {
-                if (IsActionReadyNow(ActionCatalog.BattleVoice))
-                    return MakeStep(ActionCatalog.BattleVoice, "战斗之声（旧NGA顺序）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 240);
-
-                var battleVoiceStarted = !IsActionLearned(ActionCatalog.BattleVoice) ||
-                                         battleVoiceRemaining > 0f ||
-                                         battleVoiceCooldown > 100f;
-                if (battleVoiceStarted && IsActionReadyNow(ActionCatalog.RadiantFinale))
-                    return MakeStep(ActionCatalog.RadiantFinale, "光明神的最终乐章（旧NGA顺序）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 235);
-
-                var radiantStarted = !IsActionLearned(ActionCatalog.RadiantFinale) ||
-                                     radiantRemaining > 0f ||
-                                     radiantCooldown > 90f;
-                if (battleVoiceStarted && radiantStarted && IsActionReadyNow(ActionCatalog.RagingStrikes))
-                    return MakeStep(ActionCatalog.RagingStrikes, "猛者强击（旧NGA最后开启）", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 230);
-            }
-        }
-
-        if (ragingRemaining > 0f && IsActionReadyNow(ActionCatalog.Barrage) && !HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady))
-            return MakeStep(ActionCatalog.Barrage, "纷乱箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 225);
-
-        if (ragingRemaining > 0f && IsActionReadyNow(ActionCatalog.Sidewinder))
-            return MakeStep(ActionCatalog.Sidewinder, "侧风诱导箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 220);
-
-        if (IsActionReadyNow(ActionCatalog.Bloodletter) &&
-            (ragingRemaining > 0f || ReadCooldownRemaining(ActionCatalog.RagingStrikes) > 30f))
-            return MakeStep(ActionCatalog.Bloodletter, plugin.EffectiveLevel >= 92 ? "碎心箭" : "失血箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 100);
-
-        if (IsActionReadyNow(ActionCatalog.Sidewinder) && ReadCooldownRemaining(ActionCatalog.RagingStrikes) > 30f)
-            return MakeStep(ActionCatalog.Sidewinder, "侧风诱导箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 90);
-
-        return null;
+        ReplanOgcd();
+        return CurrentWeavePlan.First is { } first
+            ? MakeStep(first.ActionId, WeavePlanner.Name(first.ActionId), ShadowActionKind.Ogcd, StepCondition.CooldownReady, 100)
+            : null;
     }
 
     private RotationStep? FindRecommendation(
@@ -381,8 +226,9 @@ public sealed class ShadowEngine
 
         return configuration.Steps
             .Where(step => step.Enabled && step.Kind == kind)
+            .Where(step => kind != ShadowActionKind.Ogcd || !plugin.Executor.RejectedActions.Contains(step.ActionId) && IsActionReadyNow(step.ActionId))
             .OrderByDescending(step => step.Priority)
-            .FirstOrDefault(step => ConditionSatisfied(step, dots, gauge, cooldowns));
+            .FirstOrDefault(step => IsActionLearned(step.ActionId) && ConditionSatisfied(step, dots, gauge, cooldowns));
     }
 
     private RotationStep? FindLevelSyncedRecommendation(
@@ -425,7 +271,7 @@ public sealed class ShadowEngine
     {
         return step.Condition switch
         {
-            StepCondition.Always => true,
+            StepCondition.Always => IsActionLearned(step.ActionId),
             StepCondition.CooldownReady => cooldowns.FirstOrDefault(cd => cd.ActionId == step.ActionId) is { Ready: true },
             StepCondition.RefulgentReady => IsActionHighlighted(ActionCatalog.RefulgentArrow),
             StepCondition.CausticMissing => dots?.CausticMissing == true,
@@ -464,6 +310,7 @@ public sealed class ShadowEngine
                 stormRemaining = Math.Max(stormRemaining, status.RemainingTime);
         }
 
+        dotLedger.Observe(target.GameObjectId, causticRemaining, stormRemaining, ActionObserver.Now);
         var causticMissing = causticRemaining <= 0;
         var stormMissing = stormRemaining <= 0;
         var refreshWindow = configuration.DynamicDotRefreshWindow
@@ -471,8 +318,8 @@ public sealed class ShadowEngine
             : Math.Clamp(configuration.DotRefreshLeadSeconds, 1f, 12f);
         var earliest = Math.Min(causticRemaining, stormRemaining);
         var refreshDue = !causticMissing && !stormMissing && earliest <= refreshWindow;
-        var causticTicks = RotationMath.EstimateDotTicks(causticRemaining, configuration.DotTickSeconds);
-        var stormTicks = RotationMath.EstimateDotTicks(stormRemaining, configuration.DotTickSeconds);
+        var causticTicks = DotEvaluator.ExpectedTicks(causticRemaining);
+        var stormTicks = DotEvaluator.ExpectedTicks(stormRemaining);
 
         return new DotAnalysis(
             target.Name.TextValue,
@@ -482,8 +329,8 @@ public sealed class ShadowEngine
             stormRemaining,
             causticTicks,
             stormTicks,
-            RotationMath.RemainingDotPotency(causticTicks, plugin.EffectiveLevel < 64 ? 15 : configuration.CausticTickPotency),
-            RotationMath.RemainingDotPotency(stormTicks, plugin.EffectiveLevel < 64 ? 20 : configuration.StormTickPotency),
+            causticTicks * (plugin.EffectiveLevel < 64 ? 15 : configuration.CausticTickPotency),
+            stormTicks * (plugin.EffectiveLevel < 64 ? 20 : configuration.StormTickPotency),
             causticMissing,
             stormMissing,
             refreshDue);
@@ -555,7 +402,9 @@ public sealed class ShadowEngine
             yield return MakeStep(ActionCatalog.BattleVoice, "战斗之声", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 115);
         if (level >= 38)
             yield return MakeStep(ActionCatalog.Barrage, "纷乱箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 110);
-        if (level >= 12)
+        if (level >= 92)
+            yield return MakeStep(ActionCatalog.HeartbreakShot, "碎心箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 41);
+        else if (level >= 12)
             yield return MakeStep(ActionCatalog.Bloodletter, "失血箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 40);
     }
 
@@ -569,7 +418,8 @@ public sealed class ShadowEngine
             (ActionCatalog.RadiantFinale, "光明神的最终乐章"),
             (ActionCatalog.Barrage, "纷乱箭"),
             (ActionCatalog.Sidewinder, "侧风诱导箭"),
-            (ActionCatalog.Bloodletter, level >= 92 ? "碎心箭" : "失血箭"),
+            (level >= 92 ? ActionCatalog.HeartbreakShot : ActionCatalog.Bloodletter,
+                level >= 92 ? "碎心箭" : "失血箭"),
         };
 
         foreach (var action in actions)
@@ -581,21 +431,8 @@ public sealed class ShadowEngine
 
     private unsafe CooldownAnalysis ReadCooldown(ActionManager* manager, RotationStep step)
     {
-        if (!IsActionLearned(step.ActionId))
-            return new CooldownAnalysis(step.Name, step.ActionId, float.MaxValue, false);
-
-        var active = manager->IsRecastTimerActive(ActionType.Action, step.ActionId);
-        if (!active)
-            return new CooldownAnalysis(step.Name, step.ActionId, 0, true);
-
-        var total = manager->GetRecastTime(ActionType.Action, step.ActionId);
-        var elapsed = manager->GetRecastTimeElapsed(ActionType.Action, step.ActionId);
-        var remaining = Math.Max(0, total - elapsed);
-        return new CooldownAnalysis(
-            step.Name,
-            step.ActionId,
-            remaining,
-            remaining <= configuration.OgcdLookAheadSeconds);
+        var remaining = LiveCombatReader.Cooldown(step.ActionId, plugin.EffectiveLevel);
+        return new(step.Name, step.ActionId, remaining, remaining <= 0.001f);
     }
 
     private static unsafe bool IsActionHighlighted(uint actionId)
@@ -630,33 +467,10 @@ public sealed class ShadowEngine
         return remaining;
     }
 
-    private unsafe float ReadCooldownRemaining(uint actionId)
-    {
-        if (!IsActionLearned(actionId))
-            return float.MaxValue;
+    private float ReadCooldownRemaining(uint actionId) => LiveCombatReader.Cooldown(actionId, plugin.EffectiveLevel);
 
-        var manager = ActionManager.Instance();
-        if (manager is null || !manager->IsRecastTimerActive(ActionType.Action, actionId))
-            return 0f;
-
-        return Math.Max(
-            0f,
-            manager->GetRecastTime(ActionType.Action, actionId) -
-            manager->GetRecastTimeElapsed(ActionType.Action, actionId));
-    }
-
-    private unsafe bool IsActionReadyNow(uint actionId)
-    {
-        if (!IsActionLearned(actionId) || plugin.ResolveBattleTarget() is not IBattleChara target)
-            return false;
-
-        var manager = ActionManager.Instance();
-        if (manager is null)
-            return false;
-
-        var adjusted = manager->GetAdjustedActionId(actionId);
-        return manager->GetActionStatus(ActionType.Action, adjusted, target.GameObjectId, false, false, null) == 0;
-    }
+    private bool IsActionReadyNow(uint actionId) => plugin.ResolveBattleTarget() is { } target &&
+        LiveCombatReader.CanUseNow(actionId, plugin.EffectiveLevel, target.GameObjectId);
 
     private ShadowSnapshot WaitingSnapshot(string status) => new(
         true,
@@ -762,12 +576,16 @@ public sealed class ShadowEngine
             return false;
 
         var manager = ActionManager.Instance();
-        if (manager is null || !manager->IsRecastTimerActive(ActionType.Action, actionId))
-            return manager is not null;
+        if (manager is null)
+            return false;
 
-        var total = manager->GetRecastTime(ActionType.Action, actionId);
-        var elapsed = manager->GetRecastTimeElapsed(ActionType.Action, actionId);
-        return Math.Max(0f, total - elapsed) <= configuration.OgcdLookAheadSeconds;
+        var adjustedActionId = manager->GetAdjustedActionId(actionId);
+        if (!manager->IsRecastTimerActive(ActionType.Action, adjustedActionId))
+            return true;
+
+        var total = manager->GetRecastTime(ActionType.Action, adjustedActionId);
+        var elapsed = manager->GetRecastTimeElapsed(ActionType.Action, adjustedActionId);
+        return Math.Max(0f, total - elapsed) <= 8f;
     }
 
     private string FormatStep(RotationStep step) => FormatAction(step.ActionId, step.Name);
@@ -780,9 +598,9 @@ public sealed class ShadowEngine
         StepCondition.CausticMissing => $"目标缺少{step.Name}持续伤害",
         StepCondition.StormMissing => $"目标缺少{step.Name}持续伤害",
         StepCondition.DotRefreshDue when dots is not null =>
-            $"{step.Name}即将进入刷新窗口；双 DoT 未跳伤害约 {dots.TotalRemainingPotency} 威力",
+            $"{step.Name}即将进入刷新窗口；双 DoT 期望剩余约 {dots.TotalRemainingPotency:F1} 基础威力",
         StepCondition.DotSnapshotDue when dots is not null =>
-            $"猛者末段按攻略截毒；覆盖前双 DoT 尚有约 {dots.TotalRemainingPotency} 威力，已计入取舍",
+            $"已知增益快照比较；双 DoT 尚有约 {dots.TotalRemainingPotency:F1} 基础威力",
         StepCondition.RefulgentReady => $"{step.Name}触发可用",
         StepCondition.SoulVoiceEighty => "魂音达到80以上，进入攻略规定的绝峰/爆破窗口",
         StepCondition.BlastArrowReady => "爆破箭触发可用",

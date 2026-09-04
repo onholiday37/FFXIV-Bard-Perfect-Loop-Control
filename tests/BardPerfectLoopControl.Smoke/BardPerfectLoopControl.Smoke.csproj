@@ -8,9 +8,17 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="PlannerTests.cs" />
+    <Compile Include="Simulation.cs" />
+    <Compile Include="..\..\CombatTiming.cs" Link="CombatTiming.cs" />
+    <Compile Include="..\..\PlannerState.cs" Link="PlannerState.cs" />
+    <Compile Include="..\..\WeavePlanner.cs" Link="WeavePlanner.cs" />
+    <Compile Include="..\..\DotEvaluator.cs" Link="DotEvaluator.cs" />
+    <Compile Include="..\..\GcdPlanner.cs" Link="GcdPlanner.cs" />
     <Compile Include="..\..\Models.cs" Link="Models.cs" />
     <Compile Include="..\..\ScenarioRules.cs" Link="ScenarioRules.cs" />
     <Compile Include="..\..\ActionCatalog.cs" Link="ActionCatalog.cs" />
+    <Compile Include="..\..\LevelSyncRules.cs" Link="LevelSyncRules.cs" />
     <Compile Include="..\..\GuideAxisRules.cs" Link="GuideAxisRules.cs" />
     <Compile Include="..\..\RotationMath.cs" Link="RotationMath.cs" />
     <Compile Include="..\..\ExecutionRules.cs" Link="ExecutionRules.cs" />

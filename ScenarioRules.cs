@@ -57,7 +57,7 @@ public static class ScenarioRules
             scenario,
             "旧 NGA 7.2 对照轴",
             "旧NGA",
-            "保留旧帖的GCD自动歌轴、团辅顺序和猛者末段截毒，仅用于对照。",
+            "保留旧帖的自动歌轴与团辅顺序；仍使用1.0联合排程和DoT收益评估，不复刻旧错误。",
             SongPlanMode.GuideAuto,
             null,
             3.2f,

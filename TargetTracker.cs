@@ -1,4 +1,6 @@
 using Dalamud.Game.ClientState.Objects.Types;
+using FFXIVClientStructs.FFXIV.Client.Game;
+using NativeObject = FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject;
 
 namespace BardPerfectLoop;
 
@@ -23,6 +25,11 @@ public sealed class TargetTracker
             return selected;
         }
 
+        // An explicit selection of someone else (for example a party member)
+        // takes precedence over automatic return to the remembered boss.
+        if (Plugin.TargetManager.Target is { } other && other.GameObjectId != lastTargetId)
+            return null;
+
         if (lastTargetId == 0)
             return null;
 
@@ -42,5 +49,11 @@ public sealed class TargetTracker
         lastTargetBecameUnavailable = false;
     }
 
-    private static bool IsUsable(IBattleChara target) => target.IsTargetable && !target.IsDead;
+    private static unsafe bool IsUsable(IBattleChara target)
+    {
+        var player = Plugin.ObjectTable.LocalPlayer;
+        return player is not null && target.IsTargetable && !target.IsDead && target.Address != 0 &&
+            System.Numerics.Vector3.Distance(player.Position, target.Position) <= 25 + player.HitboxRadius + target.HitboxRadius &&
+            ActionManager.CanUseActionOnTarget(ActionCatalog.HeavyShot, (NativeObject*)target.Address);
+    }
 }

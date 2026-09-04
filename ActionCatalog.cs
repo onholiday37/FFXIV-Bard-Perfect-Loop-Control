@@ -61,10 +61,14 @@ public static class ActionCatalog
         new(BattleVoice, "战斗之声", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 95),
         new(RadiantFinale, "光明神的最终乐章", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 90),
         new(Sidewinder, "侧风诱导箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 80),
+        new(HeartbreakShot, "碎心箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 41),
         new(Bloodletter, "失血箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 40),
     ];
 
     public static ActionDefinition? Find(uint actionId) => All.FirstOrDefault(action => action.Id == actionId);
+
+    public static bool IsGcd(uint actionId) => Find(actionId)?.Kind == ShadowActionKind.Gcd || actionId is
+        HeavyShot or StraightShot or VenomousBite or Windbite or 106 or 16494 or 25783 or 36974;
 
     public static int MinimumLevel(uint actionId) => actionId switch
     {

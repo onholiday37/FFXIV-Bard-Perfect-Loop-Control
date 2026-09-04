@@ -34,7 +34,9 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
     public override void Draw()
     {
         var snapshot = plugin.Engine.Snapshot;
-        ImGui.TextColored(new Vector4(1f, 0.25f, 0.15f, 1f), "完全控制：运行时会自动释放技能；每个 GCD 最多双插");
+        ImGui.TextColored(new Vector4(1f, 0.25f, 0.15f, 1f), plugin.Configuration.ShadowOnly
+            ? "影子观察：不发送技能，只观察手动动作并给出建议"
+            : "完全控制：运行时会自动释放技能；每个 GCD 最多双插");
         ImGui.TextDisabled("右上角 X：立即停止自动执行并隐藏窗口");
         ImGui.TextUnformatted(snapshot.Status);
         ImGui.TextWrapped($"执行器：{plugin.Executor.Status}");
@@ -68,6 +70,9 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
         ImGui.Spacing();
         ImGui.Text($"战斗时间：{snapshot.ElapsedSeconds:F2}s   GCD序号：{snapshot.GcdIndex}   下一GCD：{snapshot.UntilNextGcd:F2}s");
         ImGui.Text($"本 GCD 能力技：{plugin.Executor.OgcdsThisCycle}/{plugin.Engine.OgcdLimitThisCycle}   最短动作间隔：0.70s");
+        ImGui.Text($"1.0 计算耗时：{plugin.Engine.PlannerMilliseconds:F2}ms   安全动作锁估计：{plugin.Engine.EffectiveActionLock:F2}s");
+        if (ImGui.SmallButton("复制最近执行诊断"))
+            ImGui.SetClipboardText(plugin.Executor.DiagnosticText);
         ImGui.Text($"循环配置：{plugin.Engine.ActiveProfileName}");
 
         ImGui.SetWindowFontScale(1.28f);
@@ -91,9 +96,9 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
             ImGui.Separator();
             var dots = snapshot.Dots;
             ImGui.Text($"目标：{dots.TargetName}");
-            ImGui.Text($"{dots.CausticName}：{dots.CausticRemaining:F1}s / 预计 {dots.CausticTicksRemaining} 跳 / {dots.CausticRemainingPotency} 威力");
-            ImGui.Text($"{dots.StormName}：{dots.StormRemaining:F1}s / 预计 {dots.StormTicksRemaining} 跳 / {dots.StormRemainingPotency} 威力");
-            ImGui.Text($"DoT 尚未结算总威力：{dots.TotalRemainingPotency}");
+            ImGui.Text($"{dots.CausticName}：{dots.CausticRemaining:F1}s / 期望 {dots.CausticTicksRemaining:F2} 跳 / {dots.CausticRemainingPotency:F1} 基础威力");
+            ImGui.Text($"{dots.StormName}：{dots.StormRemaining:F1}s / 期望 {dots.StormTicksRemaining:F2} 跳 / {dots.StormRemainingPotency:F1} 基础威力");
+            ImGui.Text($"DoT 期望剩余基础威力：{dots.TotalRemainingPotency:F1}（服务器跳伤相位未知）");
         }
 
         if (snapshot.MajorCooldowns.Length > 0)

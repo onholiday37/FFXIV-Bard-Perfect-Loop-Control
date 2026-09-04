@@ -24,12 +24,14 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider Interop { get; private set; } = null!;
 
     internal Configuration Configuration { get; }
     internal HotbarKeyResolver HotbarKeys { get; } = new();
     internal TargetTracker TargetTracker { get; } = new();
     internal ShadowEngine Engine { get; }
     internal ActionExecutor Executor { get; }
+    internal ActionObserver Observer { get; }
     internal WindowSystem WindowSystem { get; } = new("BardPerfectLoopControl");
 
     private readonly ControlWindow controlWindow;
@@ -41,6 +43,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.EnsureDefaults();
         Engine = new ShadowEngine(this, Configuration);
         Executor = new ActionExecutor(this, Configuration);
+        Observer = new ActionObserver();
 
         controlWindow = new ControlWindow(this);
         overlayWindow = new ShadowOverlayWindow(this);
@@ -61,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        Observer.Dispose();
         PluginInterface.UiBuilder.Draw -= DrawWindows;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfig;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleConfig;
@@ -104,6 +108,7 @@ public sealed class Plugin : IDalamudPlugin
     {
         try
         {
+            Executor.Observe();
             Engine.Update();
             Executor.Update();
         }
@@ -129,7 +134,7 @@ public sealed class Plugin : IDalamudPlugin
                 StartControl();
                 Configuration.ShowOverlay = true;
                 Configuration.Save();
-                ChatGui.Print($"[吟游完美轴·完全控制] {ScenarioRules.Resolve(Configuration.Scenario).Name}已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
+                ChatGui.Print($"[吟游完美轴] {(Configuration.ShadowOnly ? "影子观察（不发技能）" : "完全控制")}：{ScenarioRules.Resolve(Configuration.Scenario).Name}已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
                 break;
             case "stop":
             case "停止":

@@ -59,6 +59,15 @@ Check(GuideAxisRules.IsLateWeave(ActionCatalog.BattleVoice), "Battle Voice delay
 Check(GuideAxisRules.IsLateWeave(ActionCatalog.RadiantFinale), "Radiant Finale delayed weave");
 Check(GuideAxisRules.IsLateWeave(ActionCatalog.RagingStrikes), "Raging Strikes delayed weave");
 Check(!GuideAxisRules.IsLateWeave(ActionCatalog.EmpyrealArrow), "Empyreal Arrow remains ASAP");
+Check(
+    GuideAxisRules.SelectImmediateOgcd(true, true, true, ActionCatalog.HeartbreakShot) == ActionCatalog.PitchPerfect,
+    "three-stack Pitch Perfect prevents repertoire overcap first");
+Check(
+    GuideAxisRules.SelectImmediateOgcd(false, true, true, ActionCatalog.HeartbreakShot) == ActionCatalog.EmpyrealArrow,
+    "Empyreal Arrow is immediate before charge shot");
+Check(
+    GuideAxisRules.SelectImmediateOgcd(false, false, true, ActionCatalog.HeartbreakShot) == ActionCatalog.HeartbreakShot,
+    "Heartbreak Shot is immediate when a charge is available");
 Check(!GuideAxisRules.IsLateWeave(ActionCatalog.RadiantFinale, true), "modern Finale can start double weave");
 Check(!GuideAxisRules.IsLateWeave(ActionCatalog.BattleVoice, true), "modern Battle Voice can finish double weave");
 Check(GuideAxisRules.IsLateWeave(ActionCatalog.RagingStrikes, true), "modern Raging remains late weave");
@@ -67,7 +76,17 @@ Check(ExecutionRules.MaxOgcdPerGcd == 2, "hard two-weave ceiling");
 Check(ExecutionRules.MinimumActionIntervalSeconds == 0.70, "0.70 second minimum interval");
 Check(!ExecutionRules.CanAttemptOgcd(1, 1.5f, 0.8, 0f, false, 1), "Army full-stack single-weave ceiling");
 
+Check(ActionCatalog.Find(ActionCatalog.HeartbreakShot)?.Name == "碎心箭", "level 92 action catalog uses Heartbreak Shot");
+var level100Ogcd = LevelSyncRules.SelectOgcd(
+    100,
+    new HashSet<uint> { ActionCatalog.HeartbreakShot, ActionCatalog.Bloodletter });
+Check(level100Ogcd?.ActionId == ActionCatalog.HeartbreakShot && level100Ogcd.Name == "碎心箭", "level 100 selects Heartbreak Shot");
+var level50Ogcd = LevelSyncRules.SelectOgcd(50, new HashSet<uint> { ActionCatalog.Bloodletter });
+Check(level50Ogcd?.ActionId == ActionCatalog.Bloodletter && level50Ogcd.Name == "失血箭", "level 50 keeps Bloodletter");
+
 Check(RotationMath.EstimateDotTicks(5.8f, 3f) == 2, "DoT remaining tick estimate");
 Check(RotationMath.RemainingDotPotency(2, 25) == 50, "DoT remaining potency");
 
-Console.WriteLine($"PASS: {checks} guide-axis smoke checks");
+PlannerTests.Run(Check);
+if (args.Contains("--simulate")) Simulation.Run();
+Console.WriteLine($"PASS: {checks} checks");
