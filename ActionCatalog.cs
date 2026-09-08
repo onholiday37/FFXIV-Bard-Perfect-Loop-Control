@@ -30,6 +30,10 @@ public static class ActionCatalog
     public const uint HeartbreakShot = 36975;
     public const uint ResonantArrow = 36976;
     public const uint RadiantEncore = 36977;
+    public const uint QuickNock = 106;
+    public const uint RainOfDeath = 117;
+    public const uint Shadowbite = 16494;
+    public const uint Ladonsbite = 25783;
 
     public static class Buffs
     {
@@ -63,6 +67,10 @@ public static class ActionCatalog
         new(Sidewinder, "侧风诱导箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 80),
         new(HeartbreakShot, "碎心箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 41),
         new(Bloodletter, "失血箭", ShadowActionKind.Ogcd, StepCondition.CooldownReady, 40),
+        new(QuickNock, "连珠箭", ShadowActionKind.Gcd, StepCondition.MultipleTargets, 20),
+        new(Ladonsbite, "百首龙牙箭", ShadowActionKind.Gcd, StepCondition.MultipleTargets, 20),
+        new(Shadowbite, "影噬箭", ShadowActionKind.Gcd, StepCondition.AoeProcReady, 100),
+        new(RainOfDeath, "死亡箭雨", ShadowActionKind.Ogcd, StepCondition.MultipleTargets, 40),
     ];
 
     public static ActionDefinition? Find(uint actionId) => All.FirstOrDefault(action => action.Id == actionId);
@@ -77,6 +85,8 @@ public static class ActionCatalog
         RagingStrikes => 4,
         VenomousBite => 6,
         Bloodletter => 12,
+        QuickNock => 18,
+        RainOfDeath => 45,
         Windbite => 30,
         MagesBallad => 30,
         Barrage => 38,
@@ -88,8 +98,10 @@ public static class ActionCatalog
         Sidewinder => 60,
         CausticBite or Stormbite => 64,
         RefulgentArrow => 70,
+        Shadowbite => 72,
         BurstShot => 76,
         ApexArrow => 80,
+        Ladonsbite => 82,
         BlastArrow => 86,
         RadiantFinale => 90,
         HeartbreakShot => 92,

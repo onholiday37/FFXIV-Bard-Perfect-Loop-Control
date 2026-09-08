@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.0.0.0</Version>
+    <Version>1.1.1.0</Version>
     <AssemblyName>BardPerfectLoopControl</AssemblyName>
     <Author>Codex / ouyan</Author>
-    <Name>吟游诗人完美轴·完全控制版</Name>
-    <Punchline>按场景切换当前标准、进阶、断轴恢复与自定义吟游轴。</Punchline>
-    <Description>1.0 联合排程：九天/音调/碎心、团辅与其他进攻能力技，真实充能、DoT收益、等级同步和目标恢复；最多双插。仅本地模型与自动测试验证，不保证实战最优或免封号。</Description>
-    <Tags>bard;rotation;control;timeline;吟游诗人;完全控制</Tags>
+    <Name>吟游诗人完美轴·半自动版</Name>
+    <Punchline>帮你打吟游输出、切歌和开团辅，走位与减伤自己来。</Punchline>
+    <Description>1.1.1：手动启动后，帮你处理输出循环、进攻团辅和选好的药食。进战时优先吃首药，确认药效后继续自动输出。支持绝神兵、群攻和自定义方案，两个GCD之间最多双插。选目标、走位、减伤和机制仍要自己处理。新版尚未完成游戏内实测；任何插件都可能导致封号，后果自负。</Description>
+    <Tags>bard;rotation;control;timeline;吟游诗人;半自动</Tags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>

@@ -5,7 +5,7 @@ namespace BardPerfectLoop;
 
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 6;
+    public int Version { get; set; } = 7;
 
     public bool Enabled = true;
     public bool ShadowOnly;
@@ -24,6 +24,22 @@ public sealed class Configuration : IPluginConfiguration
     public float ActionLockSeconds = 0.70f;
     public float AssumedDirectHitRate = 0.20f;
     public float TargetLifetimeSeconds; // 0 = unknown, not an HP-derived invulnerability timer.
+    public bool AutoAoe = true;
+    public bool ProtectUwuMechanics = true;
+    public bool AutoPotion = true;
+    public bool AutoFood = true;
+    public uint PotionItemId; // Base item id; quality is an explicit part of the user's selection.
+    public bool PotionHq = true;
+    public uint FoodItemId;
+    public bool FoodHq = true;
+    public float FoodRefreshSeconds = 300;
+    public float PotionLockSeconds = 1.20f;
+    public float SecondPotionAt = 270;
+    public float UwuMinimumBurstWindow = 18;
+    public float UwuReturnDelay = 1;
+    public float UwuTitanBurstDelay = 30; // First landing -> first jump -> return; configurable for the group.
+    public float UwuUltimaBurstDelay;
+    public bool UwuHoldBurstForAdds = true;
 
     public bool DynamicDotRefreshWindow;
     public float DotRefreshLeadSeconds = 5.5f;
@@ -87,7 +103,14 @@ public sealed class Configuration : IPluginConfiguration
             if (ActionCatalog.Find(step.ActionId) is { } definition)
                 step.Name = definition.Name;
         }
-        Version = 6;
+        Version = 7;
+        FoodRefreshSeconds = Clamp(FoodRefreshSeconds, 0, 900, 300);
+        PotionLockSeconds = Clamp(PotionLockSeconds, 1.10f, 1.50f, 1.20f);
+        SecondPotionAt = Clamp(SecondPotionAt, 0, 1800, 270);
+        UwuMinimumBurstWindow = Clamp(UwuMinimumBurstWindow, 5, 30, 18);
+        UwuReturnDelay = Clamp(UwuReturnDelay, 0, 10, 1);
+        UwuTitanBurstDelay = Clamp(UwuTitanBurstDelay, 0, 90, 30);
+        UwuUltimaBurstDelay = Clamp(UwuUltimaBurstDelay, 0, 90, 0);
         WeaveSafetyMargin = float.IsFinite(WeaveSafetyMargin) ? System.Math.Clamp(WeaveSafetyMargin, 0.02f, 0.30f) : 0.08f;
         ActionLockSeconds = float.IsFinite(ActionLockSeconds) ? System.Math.Clamp(ActionLockSeconds, 0.70f, 1.2f) : 0.70f;
         GcdSeconds = float.IsFinite(GcdSeconds) ? System.Math.Clamp(GcdSeconds, 1.5f, 3.5f) : 2.49f;
@@ -95,6 +118,9 @@ public sealed class Configuration : IPluginConfiguration
         TargetLifetimeSeconds = float.IsFinite(TargetLifetimeSeconds) ? System.Math.Clamp(TargetLifetimeSeconds, 0f, 3600f) : 0;
         GcdQueueWindowSeconds = float.IsFinite(GcdQueueWindowSeconds) ? System.Math.Clamp(GcdQueueWindowSeconds, 0.05f, 0.50f) : 0.45f;
     }
+
+    private static float Clamp(float value, float min, float max, float fallback) =>
+        float.IsFinite(value) ? System.Math.Clamp(value, min, max) : fallback;
 
     public void ApplyStandard3312()
     {

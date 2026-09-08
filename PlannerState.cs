@@ -40,6 +40,8 @@ public sealed record PlannerState
     public float RagingLeft { get; init; }
     public float VoiceLeft { get; init; }
     public float FinaleLeft { get; init; }
+    public float PotionLeft { get; init; }
+    public float PotionMultiplier { get; init; } = 1;
     public float FinaleMultiplier { get; init; } = 1.06f;
     public int Coda { get; init; } = 3;
     public bool NextSongGrantsNewCoda { get; init; } = true;
@@ -49,11 +51,14 @@ public sealed record PlannerState
     public bool ModernBurst { get; init; } = true;
     public bool Opener { get; init; }
     public float BurstEarliest { get; init; }
+    public float HoldBurstUntil { get; init; }
+    public AoeCoverage Aoe { get; init; } = AoeCoverage.Single;
     public float BaselineDirectHit { get; init; } = 0.20f;
     public float BackgroundPotencyPerSecond { get; init; } = 110;
     public IReadOnlySet<uint> Excluded { get; init; } = new HashSet<uint>();
-    public uint ChargeAction => Level >= 92 ? ActionCatalog.HeartbreakShot : ActionCatalog.Bloodletter;
-    public float ChargePotency => Level >= 92 ? 180 : 130;
+    public uint ChargeAction => Level >= 45 && !Excluded.Contains(ActionCatalog.RainOfDeath) && Aoe.Circle8 * 100 > SingleChargePotency ? ActionCatalog.RainOfDeath : Level >= 92 ? ActionCatalog.HeartbreakShot : ActionCatalog.Bloodletter;
+    private float SingleChargePotency => Level >= 92 ? 180 : 130;
+    public float ChargePotency => ChargeAction == ActionCatalog.RainOfDeath ? Aoe.Circle8 * 100 : SingleChargePotency;
     public float EmpyrealPotency => Level >= 94 ? 260 : 240;
     public float SidewinderPotency => Level >= 94 ? 400 : 300;
 }

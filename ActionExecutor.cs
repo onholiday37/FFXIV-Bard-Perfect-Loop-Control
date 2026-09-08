@@ -52,6 +52,11 @@ public sealed class ActionExecutor
             pendingAction = 0;
             if (action.Type == ActionType.Action)
                 plugin.Engine.OnClientExecuted(action.Id, action.Target, action.Time, action.RepertoireBefore, action.SoulBefore, action.CodaBefore);
+            if (action.Type == ActionType.Item)
+            {
+                Timeline.ReserveRemainingWeaves();
+                plugin.Consumables.ObserveItem(action.Id, action.Time);
+            }
             Trace($"CLIENT_EXECUTED id={action.Id} gcd={gcd} slots={Timeline.Ogcds} | {plugin.Engine.LastPlannerInputs}");
         }
         if (plugin.Observer.Failed && plugin.Engine.Armed)
@@ -60,8 +65,11 @@ public sealed class ActionExecutor
 
     public unsafe void Update()
     {
-        if (!plugin.Engine.Armed || !plugin.Engine.Snapshot.Running) return;
+        if (!plugin.Engine.Armed) return;
         if (configuration.ShadowOnly) { Status = "仅影子观察：不发送任何技能；可手动操作检查建议"; return; }
+        if (plugin.Consumables.BlocksActions) { Status = "药食请求等待执行或药效确认"; return; }
+        if (!plugin.IsInCombat) { plugin.Consumables.TryFood(); return; }
+        if (!plugin.Engine.Snapshot.Running) return;
         var manager = ActionManager.Instance();
         if (manager is null) { Status = "动作管理器不可用"; return; }
         var now = ActionObserver.Now;
@@ -85,6 +93,12 @@ public sealed class ActionExecutor
         }
         if (manager->ActionQueued) { Status = "已有游戏动作排队，保留玩家队列"; return; }
 
+        // Opening potion precedes our first GCD/buffs; later potions keep normal weave rules.
+        if (plugin.Consumables.TryOpeningPotion())
+        { Status = plugin.Consumables.PotionStatus; return; }
+        if (ActionObserver.Now - plugin.Consumables.LastItemExecutedAt < configuration.PotionLockSeconds)
+        { Status = "药食动作锁未结束，等待后继续输出"; return; }
+
         var timing = LiveCombatReader.Gcd(plugin.Engine.GcdReferenceActionId, configuration.GcdSeconds);
         if (timing.Remaining <= Math.Clamp(configuration.GcdQueueWindowSeconds, 0.05f, 0.50f))
         {
@@ -101,6 +115,12 @@ public sealed class ActionExecutor
         if (Timeline.EarliestWeave(now, manager->AnimationLock) > 0f ||
             !CombatTiming.Fits(0, timing.Remaining, plugin.Engine.EffectiveActionLock, configuration.WeaveSafetyMargin))
             return;
+
+        // A potion consumes the whole remaining weave budget. It is never a hidden third action.
+        if (Timeline.Ogcds == 0 && CombatTiming.Fits(0, timing.Remaining, configuration.PotionLockSeconds, configuration.WeaveSafetyMargin) &&
+            plugin.Consumables.TryPotion())
+        { Status = plugin.Consumables.PotionStatus; return; }
+        if (ActionObserver.Now - plugin.Consumables.LastItemExecutedAt < configuration.PotionLockSeconds) return;
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
@@ -126,6 +146,10 @@ public sealed class ActionExecutor
         var now = ActionObserver.Now;
         if (rejectedUntil.TryGetValue(action, out var blocked) && blocked > now) return false;
         var adjusted = manager->GetAdjustedActionId(action);
+        plugin.Battlefield.Update(true);
+        if (!plugin.Battlefield.Allows(action)) return Reject(action, "群攻范围含保护目标或未进入命中范围");
+        if (plugin.Battlefield.Encounter.HoldBurst && action is ActionCatalog.RagingStrikes or ActionCatalog.BattleVoice or ActionCatalog.RadiantFinale or ActionCatalog.Barrage)
+            return Reject(action, "阶段爆发暂缓，等待实际复现窗口");
         if (plugin.EffectiveLevel < ActionCatalog.MinimumLevel(action)) return Reject(action, "not learned");
         // Only intentional GCD queueing skips the active-recast status check.
         if (!gcd && LiveCombatReader.Cooldown(action, plugin.EffectiveLevel) > 0f)

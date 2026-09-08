@@ -24,6 +24,7 @@ public enum RotationScenario
     DowntimeRecovery = 3,
     LegacyNga = 4,
     Custom = 5,
+    Uwu = 6,
 }
 
 public enum StepCondition
@@ -40,6 +41,8 @@ public enum StepCondition
     BlastArrowReady,
     ResonantArrowReady,
     RadiantEncoreReady,
+    MultipleTargets,
+    AoeProcReady,
 }
 
 public sealed class RotationStep

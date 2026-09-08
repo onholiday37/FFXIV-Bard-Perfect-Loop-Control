@@ -10,7 +10,7 @@ internal static unsafe class LiveCombatReader
         var manager = ActionManager.Instance();
         if (manager is null || level < ActionCatalog.MinimumLevel(action)) return float.PositiveInfinity;
         var adjusted = manager->GetAdjustedActionId(action);
-        if (action is ActionCatalog.HeartbreakShot or ActionCatalog.Bloodletter)
+        if (action is ActionCatalog.HeartbreakShot or ActionCatalog.Bloodletter or ActionCatalog.RainOfDeath)
         {
             var charges = Charges(action, level);
             return charges.Available > 0 ? 0 : charges.UntilNext;

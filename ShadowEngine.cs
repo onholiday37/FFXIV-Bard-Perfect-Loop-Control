@@ -19,10 +19,13 @@ public sealed partial class ShadowEngine
 
     private long combatStartedAt;
     private bool wasInCombat;
+    private bool pullStarted;
+    public bool PullHasStarted => pullStarted;
+    public double PullElapsed => pullStarted ? Stopwatch.GetElapsedTime(combatStartedAt).TotalSeconds : 0;
     private GaugeSong lastKnownSong;
 
     public bool Armed { get; private set; }
-    public ShadowSnapshot Snapshot { get; private set; } = ShadowSnapshot.Idle("完全控制未启动");
+    public ShadowSnapshot Snapshot { get; private set; } = ShadowSnapshot.Idle("半自动未启动");
     public uint RecommendedGcdActionId { get; private set; }
     public uint RecommendedOgcdActionId { get; private set; }
     public string RecommendedGcdName { get; private set; } = string.Empty;
@@ -51,6 +54,7 @@ public sealed partial class ShadowEngine
         pendingEmpyrealAt = double.NegativeInfinity;
         observedActionLock = 0.70f;
         wasInCombat = false;
+        pullStarted = false;
         lastKnownSong = GaugeSong.None;
         OgcdLimitThisCycle = ExecutionRules.MaxOgcdPerGcd;
         Snapshot = WaitingSnapshot("已启动，等待进入战斗");
@@ -67,7 +71,7 @@ public sealed partial class ShadowEngine
 
     public void ResetTimeline()
     {
-        combatStartedAt = Stopwatch.GetTimestamp();
+        // Replanning must not reset the encounter or the 4:30 potion clock.
         if (Armed)
             Snapshot = WaitingSnapshot(plugin.IsInCombat ? "时间轴已重新对齐" : "已重置，等待进入战斗");
     }
@@ -115,18 +119,20 @@ public sealed partial class ShadowEngine
             return;
         }
 
-        if (!wasInCombat)
+        if (!pullStarted)
         {
             combatStartedAt = Stopwatch.GetTimestamp();
-            wasInCombat = true;
+            pullStarted = true;
+            plugin.Consumables.BeginPull();
         }
+        wasInCombat = true;
 
         Snapshot = BuildSnapshot();
     }
 
     private ShadowSnapshot BuildSnapshot()
     {
-        var elapsed = Stopwatch.GetElapsedTime(combatStartedAt).TotalSeconds;
+        var elapsed = PullElapsed;
         var timing = LiveCombatReader.Gcd(GcdReferenceActionId, configuration.GcdSeconds);
         var gcdIndex = plugin.Executor.Timeline.GcdCount;
         var untilNextGcd = timing.Remaining;
@@ -159,7 +165,7 @@ public sealed partial class ShadowEngine
         return new ShadowSnapshot(
             true,
             true,
-            configuration.ShadowOnly ? "影子观察运行中（不发送技能）" : "完全控制运行中",
+            configuration.ShadowOnly ? "影子观察运行中（不发送技能）" : "半自动运行中",
             elapsed,
             gcdIndex,
             untilNextGcd,
@@ -178,16 +184,17 @@ public sealed partial class ShadowEngine
         var timing = LiveCombatReader.Gcd(GcdReferenceActionId, configuration.GcdSeconds);
         var snapshots = dotLedger.Read(target.GameObjectId);
         var buffLeft = new[] { PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes),
-            PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice), PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale) }
+            PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice), PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale),
+            plugin.Consumables.PotionMultiplier > 1 ? plugin.Consumables.PotionRemaining : 0 }
             .Where(t => t > 0).DefaultIfEmpty(0).Min();
         var state = new GcdState
         {
             Level = plugin.EffectiveLevel, Gcd = timing.Total, ExecuteIn = timing.Remaining, ApplicationDelay = EffectiveActionLock,
-            Lifetime = TargetLifetime(), KnownEnd = configuration.TargetLifetimeSeconds > 0,
+            Lifetime = TargetLifetime(), KnownEnd = KnownTargetWindow,
             Caustic = dots?.CausticRemaining ?? 0, Storm = dots?.StormRemaining ?? 0,
             CausticMultiplier = snapshots.Caustic, StormMultiplier = snapshots.Storm,
             SnapshotsKnown = snapshots.Known, Multiplier = CurrentMultiplier(timing.Remaining), BuffLeft = buffLeft,
-            RagingLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes), RagingReady = ReadCooldownRemaining(ActionCatalog.RagingStrikes),
+            RagingLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes), RagingReady = Math.Max(ReadCooldownRemaining(ActionCatalog.RagingStrikes), plugin.Battlefield.Encounter.BurstIn),
             BarrageLeft = PlayerStatusRemaining(ActionCatalog.Buffs.Barrage), HawksEyeLeft = PlayerStatusRemaining(ActionCatalog.Buffs.HawksEye),
             BlastLeft = PlayerStatusRemaining(ActionCatalog.Buffs.BlastArrowReady), ResonantLeft = PlayerStatusRemaining(ActionCatalog.Buffs.ResonantArrowReady),
             EncoreLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RadiantEncoreReady), Soul = gauge.SoulVoice,
@@ -195,6 +202,8 @@ public sealed partial class ShadowEngine
             SongRemaining = gauge.SongTimer / 1000f,
             CausticPotency = plugin.EffectiveLevel < 64 ? 15 : configuration.CausticTickPotency,
             StormPotency = plugin.EffectiveLevel < 64 ? 20 : configuration.StormTickPotency,
+            Aoe = plugin.Battlefield.Coverage,
+            Excluded = plugin.Executor.RejectedActions,
         };
         var result = GcdPlanner.Select(state);
         LastGcdReason = result.Reason;
@@ -226,6 +235,7 @@ public sealed partial class ShadowEngine
 
         return configuration.Steps
             .Where(step => step.Enabled && step.Kind == kind)
+            .Where(step => plugin.Battlefield.Allows(step.ActionId))
             .Where(step => kind != ShadowActionKind.Ogcd || !plugin.Executor.RejectedActions.Contains(step.ActionId) && IsActionReadyNow(step.ActionId))
             .OrderByDescending(step => step.Priority)
             .FirstOrDefault(step => IsActionLearned(step.ActionId) && ConditionSatisfied(step, dots, gauge, cooldowns));
@@ -286,6 +296,8 @@ public sealed partial class ShadowEngine
             StepCondition.BlastArrowReady => HasPlayerStatus(ActionCatalog.Buffs.BlastArrowReady),
             StepCondition.ResonantArrowReady => HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady),
             StepCondition.RadiantEncoreReady => HasPlayerStatus(ActionCatalog.Buffs.RadiantEncoreReady),
+            StepCondition.MultipleTargets => AoeCoverage.Shape(step.ActionId) is { } shape && plugin.Battlefield.Coverage.Count(shape) >= 2,
+            StepCondition.AoeProcReady => plugin.Battlefield.Coverage.Circle5 >= 2 && (HasPlayerStatus(ActionCatalog.Buffs.HawksEye) || HasPlayerStatus(ActionCatalog.Buffs.Barrage)),
             _ => false,
         };
     }

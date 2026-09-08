@@ -1,0 +1,29 @@
+Delivery verification - 2026-09-07
+
+Assembly: BardPerfectLoopControl
+Display name: 吟游诗人完美轴·半自动版
+Assembly and manifest version: 1.1.0.0
+Dalamud API: 15
+Build: Release, 0 warnings, 0 errors
+Offline checks: 3143 passed
+Existing regression simulations: 160 runs of 300 seconds, unchanged from 1.0
+Planner-only sample: median 2.03 ms, p95 3.04 ms, max 3.36 ms (30 plans)
+These timings do not measure game end-to-end latency.
+
+DLL size: 224768 bytes
+DLL SHA256: D8B49F3937A577D78641D9D4F78318CC0F848F06731F7DAAD4D3D4504B79AEC8
+Build and desktop DLL hashes: identical
+Desktop folder: C:\Users\ouyan\Desktop\吟游诗人完美轴-半自动版\吟游诗人完美轴-半自动版-1.1.0
+
+ZIP: C:\Users\ouyan\Desktop\吟游诗人完美轴-半自动版\吟游诗人完美轴-半自动版-1.1.0.zip
+ZIP size: 129841 bytes
+ZIP SHA256: 1885D67123CCEC497CAFDC5ECA522FC95CA089616EA0F58F7F7F27F7C86C495E
+All 8 archived files checked individually against the delivered files by SHA256.
+
+Old desktop root 1.0 DLL was not overwritten.
+Old DLL SHA256 remains: 53BCA9110BE607C5E9EACEB90761E9C2952963852AEB47FCB871CE0D5A6BE96C
+Git diff whitespace check passed. No commit, push or online release performed.
+
+NOT VERIFIED IN LIVE GAME: plugin loading, native action/item execution, inventory and status confirmation, actual UWU timings, target immunity and AoE edge behavior.
+No in-game actions or item consumption were performed during this verification.
+No claim of global optimality, measured UWU DPS increase, or guaranteed sub-50ms end-to-end latency.

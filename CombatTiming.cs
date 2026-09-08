@@ -29,6 +29,7 @@ public sealed class ActionTimeline
     public long GcdCount { get; private set; }
     public bool ActiveCycle { get; private set; }
     public double LastExecutionAt { get; private set; } = double.NegativeInfinity;
+    public double LastGcdAt { get; private set; } = double.NegativeInfinity;
     public string Fault { get; private set; } = string.Empty;
     public int Revision { get; private set; }
 
@@ -38,6 +39,7 @@ public sealed class ActionTimeline
         Ogcds = 2;
         GcdCount = 0;
         LastExecutionAt = double.NegativeInfinity;
+        LastGcdAt = double.NegativeInfinity;
         Fault = string.Empty;
         Revision++;
     }
@@ -84,11 +86,12 @@ public sealed class ActionTimeline
 
     public void RecordExecuted(bool gcd, double now)
     {
-        if (gcd) { ActiveCycle = true; GcdCount++; Ogcds = 0; }
+        if (gcd) { ActiveCycle = true; GcdCount++; Ogcds = 0; LastGcdAt = now; }
         else Ogcds++;
         LastExecutionAt = now;
         Revision++;
     }
+    public void ReserveRemainingWeaves() { Ogcds = Math.Max(2, Ogcds); Revision++; }
 }
 
 public static class CombatTiming

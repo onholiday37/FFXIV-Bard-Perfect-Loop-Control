@@ -88,5 +88,6 @@ Check(RotationMath.EstimateDotTicks(5.8f, 3f) == 2, "DoT remaining tick estimate
 Check(RotationMath.RemainingDotPotency(2, 25) == 50, "DoT remaining potency");
 
 PlannerTests.Run(Check);
+EncounterTests.Run(Check);
 if (args.Contains("--simulate")) Simulation.Run();
 Console.WriteLine($"PASS: {checks} checks");

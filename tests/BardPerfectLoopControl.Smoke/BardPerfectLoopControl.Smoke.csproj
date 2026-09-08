@@ -10,6 +10,11 @@
     <Compile Include="Program.cs" />
     <Compile Include="PlannerTests.cs" />
     <Compile Include="Simulation.cs" />
+    <Compile Include="EncounterTests.cs" />
+    <Compile Include="..\..\AoeGeometry.cs" Link="AoeGeometry.cs" />
+    <Compile Include="..\..\EncounterPlanner.cs" Link="EncounterPlanner.cs" />
+    <Compile Include="..\..\ConsumableRules.cs" Link="ConsumableRules.cs" />
+    <Compile Include="..\..\DamageFactors.cs" Link="DamageFactors.cs" />
     <Compile Include="..\..\CombatTiming.cs" Link="CombatTiming.cs" />
     <Compile Include="..\..\PlannerState.cs" Link="PlannerState.cs" />
     <Compile Include="..\..\WeavePlanner.cs" Link="WeavePlanner.cs" />

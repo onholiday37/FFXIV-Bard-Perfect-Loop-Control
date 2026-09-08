@@ -25,6 +25,9 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IGameInteropProvider Interop { get; private set; } = null!;
+    [PluginService] internal static IClientState ClientState { get; private set; } = null!;
+    [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IDutyState DutyState { get; private set; } = null!;
 
     internal Configuration Configuration { get; }
     internal HotbarKeyResolver HotbarKeys { get; } = new();
@@ -32,6 +35,8 @@ public sealed class Plugin : IDalamudPlugin
     internal ShadowEngine Engine { get; }
     internal ActionExecutor Executor { get; }
     internal ActionObserver Observer { get; }
+    internal LiveBattlefield Battlefield { get; }
+    internal ConsumableController Consumables { get; }
     internal WindowSystem WindowSystem { get; } = new("BardPerfectLoopControl");
 
     private readonly ControlWindow controlWindow;
@@ -44,6 +49,8 @@ public sealed class Plugin : IDalamudPlugin
         Engine = new ShadowEngine(this, Configuration);
         Executor = new ActionExecutor(this, Configuration);
         Observer = new ActionObserver();
+        Battlefield = new LiveBattlefield(this);
+        Consumables = new ConsumableController(this);
 
         controlWindow = new ControlWindow(this);
         overlayWindow = new ShadowOverlayWindow(this);
@@ -52,10 +59,12 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "吟游完美轴完全控制：start 启动；stop 停止；reset 重新规划；config 打开编辑器。",
+            HelpMessage = "吟游完美轴半自动：start 启动；stop 停止；reset 重新规划；config 打开编辑器。",
         });
 
         Framework.Update += OnFrameworkUpdate;
+        DutyState.DutyWiped += OnDutyEnded;
+        DutyState.DutyCompleted += OnDutyEnded;
         PluginInterface.UiBuilder.Draw += DrawWindows;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfig;
         PluginInterface.UiBuilder.OpenMainUi += ToggleConfig;
@@ -64,6 +73,8 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnFrameworkUpdate;
+        DutyState.DutyWiped -= OnDutyEnded;
+        DutyState.DutyCompleted -= OnDutyEnded;
         Observer.Dispose();
         PluginInterface.UiBuilder.Draw -= DrawWindows;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfig;
@@ -94,6 +105,8 @@ public sealed class Plugin : IDalamudPlugin
     internal void StartControl()
     {
         TargetTracker.Reset();
+        Battlefield.Reset();
+        Consumables.OnStart();
         Executor.Reset("等待第一个可执行 GCD");
         Engine.Arm();
     }
@@ -109,14 +122,22 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             Executor.Observe();
+            Consumables.Poll();
+            if (Engine.Armed && IsBard && ObjectTable.LocalPlayer is { CurrentHp: > 0 }) Battlefield.Update();
             Engine.Update();
             Executor.Update();
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "吟游完美轴完全控制更新失败");
+            Log.Error(ex, "吟游完美轴半自动更新失败");
             StopControl("内部错误，保险停止");
         }
+    }
+
+    private void OnDutyEnded(object? args)
+    {
+        StopControl("副本结束或团灭，已停止；下一次开怪请手动启动");
+        Battlefield.Reset();
     }
 
     private void DrawWindows()
@@ -134,18 +155,18 @@ public sealed class Plugin : IDalamudPlugin
                 StartControl();
                 Configuration.ShowOverlay = true;
                 Configuration.Save();
-                ChatGui.Print($"[吟游完美轴] {(Configuration.ShadowOnly ? "影子观察（不发技能）" : "完全控制")}：{ScenarioRules.Resolve(Configuration.Scenario).Name}已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
+                ChatGui.Print($"[吟游完美轴] {(Configuration.ShadowOnly ? "影子观察（不发技能）" : "半自动")}：{ScenarioRules.Resolve(Configuration.Scenario).Name}已启动；每个 GCD 最多双插，动作间隔至少 0.70 秒。");
                 break;
             case "stop":
             case "停止":
                 StopControl();
-                ChatGui.Print("[吟游完美轴·完全控制] 已停止。");
+                ChatGui.Print("[吟游完美轴·半自动] 已停止。");
                 break;
             case "reset":
             case "重置":
                 Engine.ResetTimeline();
                 Executor.Reset("已重新规划，等待下一个 GCD");
-                ChatGui.Print("[吟游完美轴·完全控制] 已按当前状态重新规划。");
+                ChatGui.Print("[吟游完美轴·半自动] 已按当前状态重新规划。");
                 break;
             case "overlay":
             case "提示":

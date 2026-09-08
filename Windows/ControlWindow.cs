@@ -5,13 +5,13 @@ using Dalamud.Interface.Windowing;
 
 namespace BardPerfectLoop.Windows;
 
-public sealed class ControlWindow : Window, IDisposable
+public sealed partial class ControlWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private int selectedCatalogIndex;
 
     public ControlWindow(Plugin plugin)
-        : base("吟游完美轴·完全控制设置##BardPerfectLoopControlConfig", ImGuiWindowFlags.NoCollapse)
+        : base("吟游完美轴·半自动设置##BardPerfectLoopControlConfig", ImGuiWindowFlags.NoCollapse)
     {
         this.plugin = plugin;
         SizeConstraints = new WindowSizeConstraints
@@ -28,7 +28,7 @@ public sealed class ControlWindow : Window, IDisposable
         var config = plugin.Configuration;
         var changed = false;
 
-        ImGui.TextColored(new Vector4(1f, 0.25f, 0.15f, 1f), "警告：这是完全控制版，启动后会自动释放技能。第三方插件可能导致封号，后果自负。");
+        ImGui.TextColored(new Vector4(1f, 0.25f, 0.15f, 1f), "半自动：输出/战斗之声/最终乐章/已选药食自动；走位、减伤和增治疗由你操作。插件可能导致封号，后果自负。");
         changed |= ImGui.Checkbox("启用插件", ref config.Enabled);
         if (ImGui.Checkbox("仅影子观察（不发送技能，推荐先验收）", ref config.ShadowOnly))
         {
@@ -51,7 +51,7 @@ public sealed class ControlWindow : Window, IDisposable
 
         ImGui.Separator();
         ImGui.TextUnformatted("场景轴预设");
-        changed |= ImGui.Checkbox("启用1.0联合排程（推荐）", ref config.GuidePerfectAxis);
+        changed |= ImGui.Checkbox("启用1.1联合排程（推荐）", ref config.GuidePerfectAxis);
         ImGui.TextDisabled("点一个小按钮即可换整套场景；运行中切换会丢弃旧时间点，并从当前真实状态重新排轴。");
 
         ScenarioButton("通用 3-3-12", RotationScenario.CurrentStandard, config);
@@ -65,6 +65,10 @@ public sealed class ControlWindow : Window, IDisposable
         ScenarioButton("旧 NGA 7.2 对照", RotationScenario.LegacyNga, config);
         ImGui.SameLine();
         ScenarioButton("Custom 自定义", RotationScenario.Custom, config);
+        ImGui.SameLine();
+        ScenarioButton("绝神兵 UWU", RotationScenario.Uwu, config);
+
+        DrawEncounterAndItems(config, ref changed);
 
         var scenario = ScenarioRules.Resolve(config.Scenario);
         ImGui.TextColored(new Vector4(0.35f, 0.85f, 1f, 1f), $"当前场景：{scenario.Name}");
@@ -116,7 +120,7 @@ public sealed class ControlWindow : Window, IDisposable
 
         ImGui.Separator();
         ImGui.TextUnformatted("DoT 持续伤害计算");
-        ImGui.TextWrapped("1.0按实际GCD决定末段刷新，计算目标存活时间内的DoT增量与GCD机会成本；只在确认过自身快照后评估提前更新。");
+        ImGui.TextWrapped("1.1按实际GCD决定末段刷新，计算目标存活时间内的DoT增量与GCD机会成本；只在确认过自身快照后评估提前更新。");
         ImGui.TextDisabled("服务器跳伤相位未知时按剩余时间/3取期望，不再向上取整假装一定能跳到。");
         if (!config.GuidePerfectAxis)
         {
@@ -303,6 +307,8 @@ public sealed class ControlWindow : Window, IDisposable
         StepCondition.BlastArrowReady => "爆破箭触发可用",
         StepCondition.ResonantArrowReady => "共鸣箭触发可用",
         StepCondition.RadiantEncoreReady => "光明神返场触发可用",
+        StepCondition.MultipleTargets => "技能实际范围内至少两个可攻击目标",
+        StepCondition.AoeProcReady => "群攻范围内多目标且影噬可用",
         _ => condition.ToString(),
     };
 }

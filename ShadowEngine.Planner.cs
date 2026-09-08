@@ -26,6 +26,7 @@ public sealed partial class ShadowEngine
     public DotDecision LastDotDecision { get; private set; }
     public string LastGcdReason { get; private set; } = string.Empty;
     public void ResetTargetEstimate() { lifeTarget = 0; }
+    private bool KnownTargetWindow => configuration.TargetLifetimeSeconds > 0 || plugin.Battlefield.IsEncounterBoss && plugin.Battlefield.Encounter.PredictedEnd;
 
     internal void OnClientExecuted(uint action, ulong target, double time, int repertoireBefore, int soulBefore, int codaBefore)
     {
@@ -41,6 +42,7 @@ public sealed partial class ShadowEngine
     }
 
     private float CurrentMultiplier(float offset = 0) =>
+        (plugin.Consumables.PotionRemaining > offset ? plugin.Consumables.PotionMultiplier : 1) *
         (PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes) > offset ? 1.15f : 1) *
         (PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale) > offset ? finaleMultiplier : 1) *
         (PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice) > offset
@@ -51,7 +53,10 @@ public sealed partial class ShadowEngine
         var target = plugin.ResolveBattleTarget();
         if (target is null) return 0;
         if (lifeTarget != target.GameObjectId) { lifeTarget = target.GameObjectId; lifeTargetAt = ActionObserver.Now; }
-        return configuration.TargetLifetimeSeconds <= 0 ? 300 : Math.Max(0, configuration.TargetLifetimeSeconds - (float)(ActionObserver.Now - lifeTargetAt));
+        var estimate = configuration.TargetLifetimeSeconds <= 0 ? plugin.Battlefield.AddLifetimeEstimate : Math.Max(0, configuration.TargetLifetimeSeconds - (float)(ActionObserver.Now - lifeTargetAt));
+        if (plugin.Battlefield.IsEncounterBoss && plugin.Battlefield.Encounter.PredictedEnd)
+            estimate = Math.Min(estimate, Math.Max(0.01f, plugin.Battlefield.Encounter.UptimeRemaining));
+        return estimate;
     }
 
     public unsafe void ReplanOgcd()
@@ -60,7 +65,8 @@ public sealed partial class ShadowEngine
         if (manager is not null)
         {
             var since = ActionObserver.Now - plugin.Executor.Timeline.LastExecutionAt;
-            if (since is >= 0 and < 1.4 && manager->AnimationLock is > 0.001f and < 1.5f)
+            if (since is >= 0 and < 1.4 && manager->AnimationLock is > 0.001f and < 1.5f &&
+                nowSinceItem() > 2) // Potions have a longer lock; do not permanently inflate every normal action.
                 observedActionLock = Math.Max(observedActionLock, Math.Min(1.5f, (float)since + manager->AnimationLock + 0.02f));
         }
         var target = plugin.ResolveBattleTarget();
@@ -79,9 +85,22 @@ public sealed partial class ShadowEngine
         if (remaining <= 0) song = BardSong.None;
         var songAnalysis = AnalyzeSong(gauge);
         var next = ChooseReadySong(gauge.Song == GaugeSong.None ? lastKnownSong : gauge.Song);
+        var songSwitchIn = songAnalysis?.UntilSwitch ?? 0;
+        var phase = plugin.Battlefield.Encounter;
         if (song == BardSong.None && IsActionLearned(ActionCatalog.WanderersMinuet) &&
             ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0.001f && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 8)
             next = (ActionCatalog.WanderersMinuet, "旅神");
+        if (configuration.Scenario == RotationScenario.Uwu && phase.Phase != UwuPhase.Unknown)
+        {
+            if (song == BardSong.None && phase.HoldBurst && phase.BurstIn >= 10)
+            {
+                // Keep WM for the delayed burst when a filler song is actually available.
+                if (ReadCooldownRemaining(ActionCatalog.MagesBallad) <= 0) next = (ActionCatalog.MagesBallad, "贤者");
+                else if (ReadCooldownRemaining(ActionCatalog.ArmysPaeon) <= 0) next = (ActionCatalog.ArmysPaeon, "军神");
+            }
+            else if (!phase.HoldBurst && song != BardSong.Wanderer && ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0 && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 4)
+            { next = (ActionCatalog.WanderersMinuet, "旅神"); songSwitchIn = 0; }
+        }
         var pending = float.PositiveInfinity;
         if (song == BardSong.Wanderer && repertoireAtEmpyreal < 3 && now - pendingEmpyrealAt < 1.2 && gauge.Repertoire == repertoireAtEmpyreal && gauge.SoulVoice == soulAtEmpyreal)
             pending = Math.Max(0.05f, 0.70f - (float)(now - pendingEmpyrealAt));
@@ -105,7 +124,7 @@ public sealed partial class ShadowEngine
             Earliest = timeline.EarliestWeave(now, manager->AnimationLock),
             Slots = timeline.ActiveCycle ? Math.Max(0, OgcdLimitThisCycle - timeline.Ogcds) : 0,
             FutureSlots = OgcdLimitThisCycle, Lock = EffectiveActionLock, Margin = configuration.WeaveSafetyMargin,
-            Song = song, SongRemaining = remaining, SongSwitchIn = songAnalysis?.UntilSwitch ?? 0,
+            Song = song, SongRemaining = remaining, SongSwitchIn = songSwitchIn,
             NextSongAction = next?.ActionId ?? 0, NextSongReady = next.HasValue ? ReadCooldownRemaining(next.Value.ActionId) : float.PositiveInfinity,
             NextNaturalTick = CombatTiming.NextSongTick(remaining), Repertoire = gauge.Repertoire, Soul = gauge.SoulVoice,
             PendingRepertoireIn = pending, Charges = LiveCombatReader.Charges(plugin.EffectiveLevel >= 92 ? ActionCatalog.HeartbreakShot : ActionCatalog.Bloodletter, plugin.EffectiveLevel),
@@ -115,12 +134,16 @@ public sealed partial class ShadowEngine
             RagingLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RagingStrikes), VoiceLeft = PlayerStatusRemaining(ActionCatalog.Buffs.BattleVoice),
             NextSongGrantsNewCoda = next.HasValue && !gauge.Coda.Contains(next.Value.ActionId switch { ActionCatalog.WanderersMinuet => GaugeSong.WanderersMinuet, ActionCatalog.MagesBallad => GaugeSong.MagesBallad, _ => GaugeSong.ArmysPaeon }),
             FinaleLeft = PlayerStatusRemaining(ActionCatalog.Buffs.RadiantFinale), FinaleMultiplier = HasPlayerStatus(ActionCatalog.Buffs.RadiantFinale) ? finaleMultiplier : 1 + 0.02f * Math.Max(1, lastCoda), Coda = lastCoda,
+            PotionLeft = plugin.Consumables.PotionRemaining, PotionMultiplier = plugin.Consumables.PotionMultiplier,
             BarrageActive = HasPlayerStatus(ActionCatalog.Buffs.Barrage), ResonantActive = HasPlayerStatus(ActionCatalog.Buffs.ResonantArrowReady), HawksEye = HasPlayerStatus(ActionCatalog.Buffs.HawksEye),
             ModernBurst = ScenarioRules.Resolve(configuration.Scenario).UsesModernBurstOrder,
             Opener = timeline.GcdCount < 4, BurstEarliest = timeline.GcdCount < 2 ? timing.Remaining + EffectiveActionLock : 0,
+            HoldBurstUntil = plugin.Battlefield.Encounter.HoldBurst ? plugin.Battlefield.Encounter.BurstIn : 0,
+            Aoe = plugin.Battlefield.Coverage,
             BaselineDirectHit = Math.Clamp(configuration.AssumedDirectHitRate, 0, 1),
-            BackgroundPotencyPerSecond = (plugin.EffectiveLevel >= 76 ? 241 : 172) / timing.Total + 15,
-            TargetAvailable = true, TargetLifetime = TargetLifetime(), KnownTargetEnd = configuration.TargetLifetimeSeconds > 0, Excluded = excluded,
+            BackgroundPotencyPerSecond = Math.Max(plugin.EffectiveLevel >= 76 ? 241 : 172,
+                (plugin.EffectiveLevel >= 82 ? 140 : plugin.EffectiveLevel >= 18 ? 110 : 0) * plugin.Battlefield.Coverage.Cone12) / timing.Total + 15,
+            TargetAvailable = true, TargetLifetime = TargetLifetime(), KnownTargetEnd = KnownTargetWindow, Excluded = excluded,
         };
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         if (plannerState.Slots == 0 || manager->ActionQueued)
@@ -143,4 +166,5 @@ public sealed partial class ShadowEngine
         RecommendedOgcdRequiresLateWeave = false;
         LastPlannerInputs = $"GCD={timing.Remaining:F3}/{timing.Total:F3} PP={gauge.Repertoire} EA={plannerState.EmpyrealReady:F3} H={plannerState.Charges.Available}/{plannerState.Charges.Maximum} nextH={plannerState.Charges.UntilNext:F2} tick={plannerState.NextNaturalTick:F2} song={song} RS={plannerState.RagingLeft:F2} compute={PlannerMilliseconds:F2}ms";
     }
+    private double nowSinceItem() => ActionObserver.Now - plugin.Consumables.LastItemExecutedAt;
 }

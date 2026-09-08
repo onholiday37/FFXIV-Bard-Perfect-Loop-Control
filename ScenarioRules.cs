@@ -17,6 +17,10 @@ public static class ScenarioRules
 {
     public static RotationScenarioProfile Resolve(RotationScenario scenario) => scenario switch
     {
+        RotationScenario.Uwu => new(
+            scenario, "绝神兵 UWU：阶段适应轴", "绝神兵",
+            "70级同步；按实际阶段、上天读条和复现安排爆发，计算群攻命中与机制保护。",
+            SongPlanMode.Standard3312, null, 5.5f, true, true, false, true),
         RotationScenario.Standard249 => new(
             scenario,
             "2.49 标准轴（当前）",

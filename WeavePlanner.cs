@@ -55,7 +55,7 @@ public static class WeavePlanner
                 for (var action = 0; action < 9; action++)
                 {
                     var id = Id(action, input);
-                    if (id == 0 || input.Excluded.Contains(id) || input.Level < ActionCatalog.MinimumLevel(id))
+                    if (id == 0 || input.Excluded.Contains(id) || !input.Aoe.Allows(id) || input.Level < ActionCatalog.MinimumLevel(id))
                         continue;
                     var at = Earliest(action, node, input);
                     if (!float.IsFinite(at) || at >= horizon || !CombatTiming.Fits(at, node.WindowEnd, input.Lock, input.Margin))
@@ -119,6 +119,8 @@ public static class WeavePlanner
             at = Math.Max(at, n.Time + n.Resources.Max(r => Math.Max(0, 15 - r.Bank)));
         if (action is 4 or 5 or 6)
             at = Math.Max(at, s.BurstEarliest);
+        if (action is 4 or 5 or 6 or 7)
+            at = Math.Max(at, s.HoldBurstUntil);
         if (action == 6 || !s.ModernBurst && action is 4 or 5)
             at = Math.Max(at, n.WindowEnd - s.Gcd * 0.52f);
         if (action == 8)
@@ -129,6 +131,7 @@ public static class WeavePlanner
     private static bool Legal(int action, Node n, PlannerState s)
     {
         var t = n.Time;
+        if (action is 4 or 5 or 6 or 7 && t < s.HoldBurstUntil) return false;
         var burstSoon = n.Ready[6] - t <= s.Gcd * 1.2f || n.RagingEnd > t || s.KnownTargetEnd && s.TargetLifetime - t < 22;
         // A new song must precede repertoire-generating attacks in the opener.
         if (action != 8 && n.Song == BardSong.None && s.NextSongAction != 0 && s.NextSongReady <= t && !n.SongChanged)
@@ -165,7 +168,7 @@ public static class WeavePlanner
     private static int StagedBuff(Node n, PlannerState s)
     {
         var t = n.Time;
-        if (n.Song == BardSong.None || n.Ready[6] - t > s.Gcd * 1.2f || n.RagingEnd > t) return -1;
+        if (t < s.HoldBurstUntil || n.Song == BardSong.None || n.Ready[6] - t > s.Gcd * 1.2f || n.RagingEnd > t) return -1;
         bool Available(int a) => s.Level >= ActionCatalog.MinimumLevel(Id(a, s)) && !s.Excluded.Contains(Id(a, s)) && n.Ready[a] <= t;
         if (s.ModernBurst)
         {
@@ -189,7 +192,7 @@ public static class WeavePlanner
         if (!ending)
         {
             // Avoid horizon artifacts: unused resources still have future value.
-            score += n.Resources.Sum(r => r.Probability * (r.Repertoire * 118 + r.Bank / 15 * s.ChargePotency + r.Soul * 8));
+            score += n.Resources.Sum(r => r.Probability * (r.Repertoire * 118 * s.Aoe.PitchMultiplier + r.Bank / 15 * s.ChargePotency + r.Soul * 8));
             score -= Remaining(n.Ready[1], horizon) * s.EmpyrealPotency / 15;
             score -= Remaining(n.Ready[3], horizon) * s.SidewinderPotency / 60;
             // Remaining buff coverage extends beyond the short search horizon.
@@ -205,7 +208,16 @@ public static class WeavePlanner
     }
 
     private static float Remaining(float ready, float now) => float.IsFinite(ready) ? Math.Max(0, ready - now) : 0;
-    private static float BarrageValue(PlannerState s) => s.Level >= 96 ? 2 * 280 + 640 - 220 : s.Level >= 70 ? 2 * 260 : 2 * 200;
+    private static float BarrageValue(PlannerState s)
+    {
+        if (Math.Max(s.Aoe.Circle5, s.Aoe.Cone12) <= 1)
+            return s.Level >= 96 ? 2 * 280 + 640 - 220 : s.Level >= 70 ? 2 * 260 : 2 * 200;
+        var proc = s.Level >= 94 ? 280 : s.Level >= 70 ? 260 : 200;
+        var filler = Math.Max(proc, (s.Level >= 82 ? 140 : 110) * s.Aoe.Cone12);
+        var barrage = Math.Max(proc * 3, s.Level >= 72 ? 300 * s.Aoe.Circle5 : 0);
+        var resonant = s.Level >= 96 && s.Aoe.Circle5 > 0 ? 640 * (1 + 0.5f * (s.Aoe.Circle5 - 1)) - filler : 0;
+        return Math.Max(0, barrage - filler) + Math.Max(0, resonant);
+    }
     private static float EncoreValue(PlannerState s, int? coda = null) => s.Level >= 100 ? ((coda ?? s.Coda) >= 3 ? 1100 : (coda ?? s.Coda) == 2 ? 800 : 700) - 220 : 0;
     private readonly record struct Resource(double Probability, int Repertoire, float Bank, float Soul);
 
@@ -287,7 +299,7 @@ public static class WeavePlanner
         public double IntegratedBackground(float from, float to, PlannerState s)
         {
             if (to <= from) return 0;
-            var cuts = new[] { from, to, RagingEnd, VoiceEnd, FinaleEnd }.Where(x => x >= from && x <= to).Distinct().Order().ToArray();
+            var cuts = new[] { from, to, RagingEnd, VoiceEnd, FinaleEnd, s.PotionLeft }.Where(x => x >= from && x <= to).Distinct().Order().ToArray();
             double result = 0;
             for (var i = 1; i < cuts.Length; i++)
                 result += (cuts[i] - cuts[i - 1]) * s.BackgroundPotencyPerSecond * Multiplier((cuts[i] + cuts[i - 1]) / 2, s);
@@ -295,6 +307,7 @@ public static class WeavePlanner
         }
         private double Multiplier(float at, PlannerState s) =>
             (RagingEnd > at ? 1.15 : 1) * (FinaleEnd > at ? FinaleMultiplier : 1) *
+            (s.PotionLeft > at ? s.PotionMultiplier : 1) *
             (VoiceEnd > at ? (1 + 0.25 * Math.Min(1, s.BaselineDirectHit + 0.20)) / (1 + 0.25 * s.BaselineDirectHit) : 1);
         private void Proc(PlannerState s, float chance)
         {
@@ -321,7 +334,7 @@ public static class WeavePlanner
             switch (action)
             {
                 case 0:
-                    Damage += Resources.Sum(r => r.Probability * PitchPotency(r.Repertoire)) * multiplier;
+                    Damage += Resources.Sum(r => r.Probability * PitchPotency(r.Repertoire)) * s.Aoe.PitchMultiplier * multiplier;
                     Resources = Resources.Select(r => r with { Repertoire = 0 }).ToList(); Ready[0] = Time + 1;
                     break;
                 case 1:
