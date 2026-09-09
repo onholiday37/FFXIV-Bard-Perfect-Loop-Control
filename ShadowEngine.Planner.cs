@@ -17,10 +17,11 @@ public sealed partial class ShadowEngine
     private int lastCoda;
     private ulong lifeTarget;
     private double lifeTargetAt;
-    private float observedActionLock = 0.70f;
+    private readonly ActionLockEstimate actionLockEstimate = new();
+    private double normalActionAt = double.NegativeInfinity;
     public WeavePlan CurrentWeavePlan { get; private set; } = WeavePlan.Empty("未启动");
     public string LastPlannerInputs { get; private set; } = string.Empty;
-    public float EffectiveActionLock => Math.Max(observedActionLock, configuration.ActionLockSeconds);
+    public float EffectiveActionLock => actionLockEstimate.Value(ActionObserver.Now, configuration.ActionLockSeconds);
     public int ActualRepertoire => Plugin.JobGauges.Get<BRDGauge>().Repertoire;
     public double PlannerMilliseconds { get; private set; }
     public DotDecision LastDotDecision { get; private set; }
@@ -30,6 +31,7 @@ public sealed partial class ShadowEngine
 
     internal void OnClientExecuted(uint action, ulong target, double time, int repertoireBefore, int soulBefore, int codaBefore)
     {
+        normalActionAt = ActionCatalog.Find(action) is not null ? time : double.NegativeInfinity;
         if (action == ActionCatalog.EmpyrealArrow)
         {
             pendingEmpyrealAt = repertoireBefore >= 0 ? time : double.NegativeInfinity;
@@ -64,10 +66,9 @@ public sealed partial class ShadowEngine
         var manager = ActionManager.Instance();
         if (manager is not null)
         {
-            var since = ActionObserver.Now - plugin.Executor.Timeline.LastExecutionAt;
-            if (since is >= 0 and < 1.4 && manager->AnimationLock is > 0.001f and < 1.5f &&
-                nowSinceItem() > 2) // Potions have a longer lock; do not permanently inflate every normal action.
-                observedActionLock = Math.Max(observedActionLock, Math.Min(1.5f, (float)since + manager->AnimationLock + 0.02f));
+            var last = plugin.Executor.Timeline.LastExecutionAt;
+            actionLockEstimate.Observe(last, ActionObserver.Now, manager->AnimationLock,
+                last == normalActionAt && nowSinceItem() > 2);
         }
         var target = plugin.ResolveBattleTarget();
         if (manager is null || target is null)
@@ -83,24 +84,9 @@ public sealed partial class ShadowEngine
         var remaining = gauge.SongTimer / 1000f;
         var song = gauge.Song switch { GaugeSong.WanderersMinuet => BardSong.Wanderer, GaugeSong.MagesBallad => BardSong.Mage, GaugeSong.ArmysPaeon => BardSong.Army, _ => BardSong.None };
         if (remaining <= 0) song = BardSong.None;
-        var songAnalysis = AnalyzeSong(gauge);
-        var next = ChooseReadySong(gauge.Song == GaugeSong.None ? lastKnownSong : gauge.Song);
-        var songSwitchIn = songAnalysis?.UntilSwitch ?? 0;
-        var phase = plugin.Battlefield.Encounter;
-        if (song == BardSong.None && IsActionLearned(ActionCatalog.WanderersMinuet) &&
-            ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0.001f && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 8)
-            next = (ActionCatalog.WanderersMinuet, "旅神");
-        if (configuration.Scenario == RotationScenario.Uwu && phase.Phase != UwuPhase.Unknown)
-        {
-            if (song == BardSong.None && phase.HoldBurst && phase.BurstIn >= 10)
-            {
-                // Keep WM for the delayed burst when a filler song is actually available.
-                if (ReadCooldownRemaining(ActionCatalog.MagesBallad) <= 0) next = (ActionCatalog.MagesBallad, "贤者");
-                else if (ReadCooldownRemaining(ActionCatalog.ArmysPaeon) <= 0) next = (ActionCatalog.ArmysPaeon, "军神");
-            }
-            else if (!phase.HoldBurst && song != BardSong.Wanderer && ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0 && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 4)
-            { next = (ActionCatalog.WanderersMinuet, "旅神"); songSwitchIn = 0; }
-        }
+        var schedule = GetSongSchedule(gauge);
+        var next = schedule.Next;
+        var songSwitchIn = schedule.SwitchIn;
         var pending = float.PositiveInfinity;
         if (song == BardSong.Wanderer && repertoireAtEmpyreal < 3 && now - pendingEmpyrealAt < 1.2 && gauge.Repertoire == repertoireAtEmpyreal && gauge.SoulVoice == soulAtEmpyreal)
             pending = Math.Max(0.05f, 0.70f - (float)(now - pendingEmpyrealAt));
@@ -154,7 +140,7 @@ public sealed partial class ShadowEngine
         {
             var step = FindRecommendation(ShadowActionKind.Ogcd, AnalyzeDots(), gauge, AnalyzeMajorCooldowns());
             if (song == BardSong.None || plannerState.SongSwitchIn <= timing.Total + 0.5f)
-                CurrentWeavePlan = WeavePlanner.Plan(plannerState with { Excluded = excluded.Union(ActionCatalog.All.Where(a => a.Kind == ShadowActionKind.Ogcd && a.Id != ActionCatalog.PitchPerfect).Select(a => a.Id)).ToHashSet() });
+                CurrentWeavePlan = WeavePlanner.Plan(plannerState with { Excluded = excluded.Union(ActionCatalog.All.Where(a => a.Kind == ShadowActionKind.Ogcd && a.Id != ActionCatalog.PitchPerfect && !SongContinuity.IsSong(a.Id)).Select(a => a.Id)).ToHashSet() });
             else CurrentWeavePlan = step is not null && !excluded.Contains(step.ActionId) && plannerState.Slots > 0 &&
                 CombatTiming.Fits(plannerState.Earliest, plannerState.NextGcd, plannerState.Lock, plannerState.Margin)
                 ? new([new(step.ActionId, plannerState.Earliest, step.ActionId == ActionCatalog.PitchPerfect ? gauge.Repertoire : 0)], 0, "自定义条件列表；保留真实CD与双插保护")
@@ -164,7 +150,46 @@ public sealed partial class ShadowEngine
         RecommendedOgcdActionId = CurrentWeavePlan.First?.ActionId ?? 0;
         RecommendedOgcdName = RecommendedOgcdActionId == 0 ? string.Empty : WeavePlanner.Name(RecommendedOgcdActionId);
         RecommendedOgcdRequiresLateWeave = false;
-        LastPlannerInputs = $"GCD={timing.Remaining:F3}/{timing.Total:F3} PP={gauge.Repertoire} EA={plannerState.EmpyrealReady:F3} H={plannerState.Charges.Available}/{plannerState.Charges.Maximum} nextH={plannerState.Charges.UntilNext:F2} tick={plannerState.NextNaturalTick:F2} song={song} RS={plannerState.RagingLeft:F2} compute={PlannerMilliseconds:F2}ms";
+        LastPlannerInputs = $"GCD={timing.Remaining:F3}/{timing.Total:F3} PP={gauge.Repertoire} EA={plannerState.EmpyrealReady:F3} H={plannerState.Charges.Available}/{plannerState.Charges.Maximum} nextH={plannerState.Charges.UntilNext:F2} tick={plannerState.NextNaturalTick:F2} song={song} remaining={remaining:F3} cutIn={songSwitchIn:F3} lock={EffectiveActionLock:F3} RS={plannerState.RagingLeft:F2} compute={PlannerMilliseconds:F2}ms";
     }
+
+    private ((uint ActionId, string Name)? Next, float SwitchIn) GetSongSchedule(BRDGauge gauge)
+    {
+        var song = gauge.SongTimer <= 0 ? BardSong.None : gauge.Song switch
+        {
+            GaugeSong.WanderersMinuet => BardSong.Wanderer,
+            GaugeSong.MagesBallad => BardSong.Mage,
+            GaugeSong.ArmysPaeon => BardSong.Army, _ => BardSong.None,
+        };
+        var songAnalysis = AnalyzeSong(gauge);
+        var next = ChooseReadySong(gauge.Song == GaugeSong.None ? lastKnownSong : gauge.Song);
+        var songSwitchIn = songAnalysis?.UntilSwitch ?? 0;
+        var phase = plugin.Battlefield.Encounter;
+        if (song == BardSong.None && IsActionLearned(ActionCatalog.WanderersMinuet) &&
+            ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0.001f && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 8)
+            next = (ActionCatalog.WanderersMinuet, "旅神");
+        if (configuration.Scenario == RotationScenario.Uwu && phase.Phase != UwuPhase.Unknown)
+        {
+            if (song == BardSong.None && phase.HoldBurst && phase.BurstIn >= 10)
+            {
+                // Keep WM for the delayed burst when a filler song is actually available.
+                if (ReadCooldownRemaining(ActionCatalog.MagesBallad) <= 0) next = (ActionCatalog.MagesBallad, "贤者");
+                else if (ReadCooldownRemaining(ActionCatalog.ArmysPaeon) <= 0) next = (ActionCatalog.ArmysPaeon, "军神");
+            }
+            else if (!phase.HoldBurst && song != BardSong.Wanderer && ReadCooldownRemaining(ActionCatalog.WanderersMinuet) <= 0 && ReadCooldownRemaining(ActionCatalog.RagingStrikes) <= 4)
+            { next = (ActionCatalog.WanderersMinuet, "旅神"); songSwitchIn = 0; }
+        }
+        return (next, songSwitchIn);
+    }
+
+    internal bool CanSendSong(uint action, out string reason)
+    {
+        var gauge = Plugin.JobGauges.Get<BRDGauge>();
+        var schedule = GetSongSchedule(gauge);
+        var allowed = SongContinuity.CanSend(action, schedule.Next?.ActionId ?? 0, schedule.SwitchIn);
+        reason = $"song={gauge.Song} remaining={gauge.SongTimer / 1000f:F3}s cutIn={schedule.SwitchIn:F3}s next={schedule.Next?.ActionId ?? 0} axis={configuration.SongPlan}";
+        return allowed;
+    }
+
     private double nowSinceItem() => ActionObserver.Now - plugin.Consumables.LastItemExecutedAt;
 }

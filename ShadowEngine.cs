@@ -20,6 +20,8 @@ public sealed partial class ShadowEngine
     private long combatStartedAt;
     private bool wasInCombat;
     private bool pullStarted;
+    private readonly RecoveryLifecycle recovery = new();
+    public bool WaitingForRevival => recovery.Waiting;
     public bool PullHasStarted => pullStarted;
     public double PullElapsed => pullStarted ? Stopwatch.GetElapsedTime(combatStartedAt).TotalSeconds : 0;
     private GaugeSong lastKnownSong;
@@ -48,11 +50,13 @@ public sealed partial class ShadowEngine
 
     public void Arm()
     {
+        recovery.Reset();
         Armed = true;
         dotLedger.Invalidate();
         lifeTarget = 0;
         pendingEmpyrealAt = double.NegativeInfinity;
-        observedActionLock = 0.70f;
+        actionLockEstimate.Reset();
+        normalActionAt = double.NegativeInfinity;
         wasInCombat = false;
         pullStarted = false;
         lastKnownSong = GaugeSong.None;
@@ -62,6 +66,7 @@ public sealed partial class ShadowEngine
 
     public void Stop(string reason = "已手动停止")
     {
+        recovery.Reset();
         Armed = false;
         wasInCombat = false;
         ClearRecommendations();
@@ -73,7 +78,11 @@ public sealed partial class ShadowEngine
     {
         // Replanning must not reset the encounter or the 4:30 potion clock.
         if (Armed)
+        {
+            ClearRecommendations();
+            CurrentWeavePlan = WeavePlan.Empty("重新读取当前状态");
             Snapshot = WaitingSnapshot(plugin.IsInCombat ? "时间轴已重新对齐" : "已重置，等待进入战斗");
+        }
     }
 
     public void Update()
@@ -89,6 +98,8 @@ public sealed partial class ShadowEngine
 
         if (!plugin.IsBard)
         {
+            if (recovery.Waiting && !Plugin.PlayerState.IsLoaded)
+            { Snapshot = WaitingSnapshot("等待复活后的角色信息恢复"); return; }
             Stop("职业已变化，保险停止");
             return;
         }
@@ -96,17 +107,46 @@ public sealed partial class ShadowEngine
         var player = Plugin.ObjectTable.LocalPlayer;
         if (player is null)
         {
+            if (recovery.Waiting)
+            { Snapshot = WaitingSnapshot("等待复活后的角色信息恢复"); return; }
             Stop("本地角色不可用，保险停止");
             return;
         }
 
-        if (player.CurrentHp <= 0)
+        var life = recovery.Update(player.IsDead || player.CurrentHp <= 0, plugin.IsInCombat,
+            plugin.TargetTracker.SelectedEngaged, Plugin.TargetManager.Target?.GameObjectId ?? 0,
+            plugin.TargetTracker.SelectedUsable is not null);
+        if (life is RecoveryMode.NewDeath or RecoveryMode.Dead or RecoveryMode.Waiting)
         {
-            Stop("角色倒地，保险停止");
+            if (life == RecoveryMode.NewDeath)
+            {
+                actionLockEstimate.Reset();
+                normalActionAt = double.NegativeInfinity;
+                plugin.TargetTracker.BeginRecovery();
+                plugin.Executor.SuspendForDeath();
+                plugin.Consumables.OnDeath();
+                dotLedger.Invalidate(); lifeTarget = 0; pendingEmpyrealAt = double.NegativeInfinity;
+                lastKnownSong = GaugeSong.None;
+            }
+            ClearRecommendations();
+            var reason = life == RecoveryMode.Waiting
+                ? recovery.PendingSelection != 0
+                    ? "已记录重新选敌，等待当前目标可攻击及战斗标记恢复；取消目标可撤回"
+                    : "已复活，等待你重新选中敌人（旧目标请先取消再选中）"
+                : "角色倒地，等待复活（仍已启动）";
+            CurrentWeavePlan = WeavePlan.Empty(reason);
+            Snapshot = WaitingSnapshot(reason);
             return;
         }
+        if (life == RecoveryMode.Resumed)
+        {
+            plugin.TargetTracker.CompleteRecovery();
+            plugin.TargetTracker.Resolve();
+            // A manual attack may already have been observed this frame. Keep its weave budget.
+            plugin.Battlefield.Update();
+        }
 
-        if (!plugin.IsInCombat)
+        if (!plugin.IsInCombat && !(recovery.HasDied && plugin.TargetTracker.RememberedEngaged))
         {
             if (wasInCombat && configuration.StopWhenCombatEnds)
             {
@@ -233,12 +273,9 @@ public sealed partial class ShadowEngine
         if (UsesLevel50Profile)
             return FindLevelSyncedRecommendation(kind, dots, cooldowns);
 
-        return configuration.Steps
-            .Where(step => step.Enabled && step.Kind == kind)
-            .Where(step => plugin.Battlefield.Allows(step.ActionId))
-            .Where(step => kind != ShadowActionKind.Ogcd || !plugin.Executor.RejectedActions.Contains(step.ActionId) && IsActionReadyNow(step.ActionId))
-            .OrderByDescending(step => step.Priority)
-            .FirstOrDefault(step => IsActionLearned(step.ActionId) && ConditionSatisfied(step, dots, gauge, cooldowns));
+        return RotationSelector.Select(configuration.Steps, kind, plugin.Executor.RejectedActions,
+            plugin.Battlefield.Allows, IsActionLearned, IsActionReadyNow,
+            step => ConditionSatisfied(step, dots, gauge, cooldowns));
     }
 
     private RotationStep? FindLevelSyncedRecommendation(
@@ -381,7 +418,7 @@ public sealed partial class ShadowEngine
             remaining,
             cutRemaining,
             UsesLevel50Profile ? 45f : plan.SingingSecondsFor(songActionId),
-            remaining - cutRemaining,
+            SongContinuity.SwitchIn(remaining, cutRemaining),
             gauge.Repertoire);
     }
 
@@ -488,7 +525,7 @@ public sealed partial class ShadowEngine
         true,
         false,
         status,
-        0,
+        PullElapsed,
         0,
         0,
         "等待战斗",
@@ -509,72 +546,22 @@ public sealed partial class ShadowEngine
 
     private (uint ActionId, string Name)? ChooseReadySong(GaugeSong previousSong)
     {
-        if (UsesLevel50Profile)
+        var gauge = Plugin.JobGauges.Get<BRDGauge>();
+        var active = gauge.Song != GaugeSong.None && gauge.SongTimer > 0;
+        var remaining = active ? gauge.SongTimer / 1000f : 0;
+        var ordered = previousSong switch
         {
-            var syncedCandidates = previousSong switch
-            {
-                GaugeSong.MagesBallad => new[]
-                {
-                    (ActionCatalog.ArmysPaeon, "军神"),
-                    (ActionCatalog.MagesBallad, "贤者"),
-                },
-                GaugeSong.ArmysPaeon => new[]
-                {
-                    (ActionCatalog.MagesBallad, "贤者"),
-                    (ActionCatalog.ArmysPaeon, "军神"),
-                },
-                _ => new[]
-                {
-                    (ActionCatalog.MagesBallad, "贤者"),
-                    (ActionCatalog.ArmysPaeon, "军神"),
-                },
-            };
-
-            foreach (var candidate in syncedCandidates)
-            {
-                if (IsSongLearned(candidate.Item1) && IsActionReadySoon(candidate.Item1))
-                    return candidate;
-            }
-
-            return null;
-        }
-
-        var candidates = previousSong switch
-        {
-            GaugeSong.WanderersMinuet => new[]
-            {
-                (ActionCatalog.MagesBallad, "贤者"),
-                (ActionCatalog.ArmysPaeon, "军神"),
-                (ActionCatalog.WanderersMinuet, "旅神"),
-            },
-            GaugeSong.MagesBallad => new[]
-            {
-                (ActionCatalog.ArmysPaeon, "军神"),
-                (ActionCatalog.WanderersMinuet, "旅神"),
-                (ActionCatalog.MagesBallad, "贤者"),
-            },
-            GaugeSong.ArmysPaeon => new[]
-            {
-                (ActionCatalog.WanderersMinuet, "旅神"),
-                (ActionCatalog.MagesBallad, "贤者"),
-                (ActionCatalog.ArmysPaeon, "军神"),
-            },
-            _ => new[]
-            {
-                (ActionCatalog.WanderersMinuet, "旅神"),
-                (ActionCatalog.MagesBallad, "贤者"),
-                (ActionCatalog.ArmysPaeon, "军神"),
-            },
+            GaugeSong.WanderersMinuet => new[] { ActionCatalog.MagesBallad, ActionCatalog.ArmysPaeon, ActionCatalog.WanderersMinuet },
+            GaugeSong.MagesBallad => new[] { ActionCatalog.ArmysPaeon, ActionCatalog.WanderersMinuet, ActionCatalog.MagesBallad },
+            _ => new[] { ActionCatalog.WanderersMinuet, ActionCatalog.MagesBallad, ActionCatalog.ArmysPaeon },
         };
-
-        foreach (var candidate in candidates)
-        {
-            if (IsActionReadySoon(candidate.Item1))
-                return candidate;
-        }
-
-        return null;
+        var current = gauge.Song switch { GaugeSong.WanderersMinuet => ActionCatalog.WanderersMinuet, GaugeSong.MagesBallad => ActionCatalog.MagesBallad, GaugeSong.ArmysPaeon => ActionCatalog.ArmysPaeon, _ => 0u };
+        var options = ordered.Where(a => IsSongLearned(a) && (!active || a != current) && !plugin.Executor.RejectedActions.Contains(a))
+            .Select(a => new SongOption(a, ReadCooldownRemaining(a))).ToArray();
+        var choice = SongContinuity.Choose(options, remaining, active);
+        return choice.Action == 0 ? null : (choice.Action, WeavePlanner.Name(choice.Action));
     }
+
 
     private bool IsSongLearned(uint actionId) => actionId switch
     {
@@ -582,23 +569,6 @@ public sealed partial class ShadowEngine
         _ => false,
     };
 
-    private unsafe bool IsActionReadySoon(uint actionId)
-    {
-        if (!IsActionLearned(actionId))
-            return false;
-
-        var manager = ActionManager.Instance();
-        if (manager is null)
-            return false;
-
-        var adjustedActionId = manager->GetAdjustedActionId(actionId);
-        if (!manager->IsRecastTimerActive(ActionType.Action, adjustedActionId))
-            return true;
-
-        var total = manager->GetRecastTime(ActionType.Action, adjustedActionId);
-        var elapsed = manager->GetRecastTimeElapsed(ActionType.Action, adjustedActionId);
-        return Math.Max(0f, total - elapsed) <= 8f;
-    }
 
     private string FormatStep(RotationStep step) => FormatAction(step.ActionId, step.Name);
 

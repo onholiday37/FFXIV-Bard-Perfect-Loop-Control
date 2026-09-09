@@ -1,0 +1,37 @@
+1.1.2 offline verification: death recovery and song continuity
+Native resurrection, target switching and game execution were NOT tested.
+200 simulated runs (including 2.48 GCD); simulation is not measured game DPS.
+
+  Dalamud.NET.Sdk: root at C:\Users\ouyan\AppData\Roaming\XIVLauncher\addon\Hooks\dev\
+  BardPerfectLoopControl -> C:\Users\ouyan\Documents\Codex\2026-08-29\gei\work\bard-perfect-loop-control\bin\Release\BardPerfectLoopControl.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:01.19
+two stacks EA then PP, no intervening proc: 联合排程：九天连箭 +0.70s → 完美音调 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=281.35
+three stacks PP before EA: 联合排程：完美音调 +0.70s → 九天连箭 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=269.21
+two stacks clear before certain intervening natural proc: 联合排程：完美音调 +1.00s → 九天连箭 +1.70s；含自然诗心分支、充能/诗心期末价值和真实CD score=500.01
+no natural proc does not force two-stack dump: 联合排程：九天连箭 +0.70s → 完美音调 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=281.35
+EA cooling does not starve Heartbreak: 联合排程：碎心箭 +0.70s；含自然诗心分支、充能/诗心期末价值和真实CD score=81.24
+Mage full charges spends before EA reduction: 联合排程：碎心箭 +0.70s → 九天连箭 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=316.45
+reserve: 联合排程：九天连箭 +0.76s；含自然诗心分支、充能/诗心期末价值和真实CD
+rejected Finale does not block all other buffs: 联合排程：战斗之声 +0.70s → 猛者强击 +1.40s → 碎心箭 +3.19s → 纷乱箭 +3.89s；含自然诗心分支、充能/诗心期末价值和真实CD score=356.13
+collect imminent third coda before Finale: 已到切歌时间，先给下一首歌留插入位置 score=0.00
+PERF 30 plans median=2.14ms p95=3.40ms max=3.89ms
+UWU/AOE/consumable boundary tests passed.
+Death recovery and song continuity checks passed.
+SIM gcd=2.47 axis=3312 downtime=False seeds=10 duration=300 baseline=63346.8 v1=66098.1 delta=4.34% dots=4815.4 EA=19.10 H=38.60 PP=15.40 overflow=0.60 min=65410.4 max=66880.1
+SIM gcd=2.47 axis=3312 downtime=True seeds=10 duration=300 baseline=60617.3 v1=61845.0 delta=2.03% dots=4315.7 EA=19.40 H=37.20 PP=15.40 overflow=0.00 min=61053.5 max=62478.8
+SIM gcd=2.48 axis=3312 downtime=False seeds=10 duration=300 baseline=64599.8 v1=66293.4 delta=2.62% dots=4787.3 EA=19.80 H=38.00 PP=15.60 overflow=0.80 min=65625.5 max=67204.3
+SIM gcd=2.48 axis=3312 downtime=True seeds=10 duration=300 baseline=60815.0 v1=61846.9 delta=1.70% dots=4315.7 EA=19.80 H=36.30 PP=15.80 overflow=0.80 min=61194.6 max=62757.9
+OPENER 0.00 狂风蚀箭 | 0.70 旅神歌 | 1.40 九天连箭 | 2.49 烈毒咬箭 | 3.19 光明神的最终乐章 | 3.89 战斗之声 | 4.98 辉煌箭 | 6.18 猛者强击 | 7.47 光明神的返场余音 | 8.17 碎心箭 | 8.87 完美音调 | 9.96 爆发射击 | 10.66 纷乱箭 | 11.36 侧风诱导箭 | 12.45 辉煌箭 | 13.15 完美音调 | 13.85 碎心箭 | 14.94 共鸣箭 | 16.40 九天连箭 | 17.43 爆发射击 | 18.13 碎心箭 | 19.92 辉煌箭 | 22.41 爆发射击 | 23.11 完美音调 | 23.81 碎心箭 | 24.90 辉煌箭
+SIM gcd=2.49 axis=3312 downtime=False seeds=10 duration=300 baseline=62868.5 v1=66561.9 delta=5.87% dots=4834.1 EA=20.00 H=38.30 PP=16.40 overflow=0.50 min=65743.9 max=67294.0
+SIM gcd=2.49 axis=3312 downtime=True seeds=10 duration=300 baseline=60498.4 v1=62361.6 delta=3.08% dots=4304.4 EA=20.00 H=37.80 PP=15.30 overflow=0.80 min=61426.0 max=63468.4
+SIM gcd=2.50 axis=3312 downtime=False seeds=10 duration=300 baseline=65179.5 v1=66380.8 delta=1.84% dots=4830.3 EA=20.00 H=38.50 PP=16.40 overflow=0.20 min=65187.5 max=67338.0
+SIM gcd=2.50 axis=3312 downtime=True seeds=10 duration=300 baseline=61683.6 v1=62289.9 delta=0.98% dots=4304.4 EA=20.00 H=36.90 PP=15.70 overflow=0.40 min=60894.5 max=63194.3
+SIM gcd=2.50 axis=369 downtime=False seeds=10 duration=300 baseline=65470.3 v1=66296.5 delta=1.26% dots=4825.3 EA=20.00 H=37.90 PP=16.10 overflow=0.20 min=65373.1 max=67415.0
+SIM gcd=2.50 axis=369 downtime=True seeds=10 duration=300 baseline=61534.7 v1=62122.2 delta=0.95% dots=4304.4 EA=19.80 H=36.50 PP=15.20 overflow=0.40 min=60618.1 max=63585.9
+SIM units are expected own-buff-weighted action potency; not game DPS. Baseline uses the old priority with corrected readiness, same GCD evaluator. No auto-attacks, gear scaling, party buffs, damage variance, latency or actual game execution.
+PASS: 3054 checks

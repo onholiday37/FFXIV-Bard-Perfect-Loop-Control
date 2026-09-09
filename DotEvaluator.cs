@@ -54,28 +54,53 @@ public static class DotEvaluator
 public sealed class DotSnapshotLedger
 {
     private readonly Dictionary<ulong, (float Caustic, float Storm, bool C, bool S)> entries = [];
-    private readonly Dictionary<ulong, (uint Action, float Multiplier, double Time, float C, float S)> pending = [];
-    private readonly Dictionary<ulong, (float C, float S)> observed = [];
+    private readonly Dictionary<ulong, (uint Action, float Multiplier, double Time, float C, float S, double ObservedAt)> pending = [];
+    private readonly Dictionary<ulong, (float C, float S, double At)> observed = [];
     public void Stage(ulong target, uint action, float multiplier, double time)
     {
         if (action is not (ActionCatalog.CausticBite or ActionCatalog.VenomousBite or ActionCatalog.Stormbite or ActionCatalog.Windbite or ActionCatalog.IronJaws)) return;
         if (pending.Count >= 16 && !pending.ContainsKey(target)) pending.Clear();
         observed.TryGetValue(target, out var previous);
-        pending[target] = (action, multiplier, time, previous.C, previous.S);
+        pending[target] = (action, multiplier, time, previous.C, previous.S, previous.At);
     }
     public void Observe(ulong target, float caustic, float storm, double now)
     {
+        if (!double.IsFinite(now) || !float.IsFinite(caustic) || !float.IsFinite(storm))
+        { entries.Remove(target); pending.Remove(target); observed.Remove(target); return; }
         if (observed.Count >= 16 && !observed.ContainsKey(target)) observed.Clear();
+        var hadPrevious = observed.TryGetValue(target, out var previous);
+        if (hadPrevious && now < previous.At)
+        { entries.Remove(target); pending.Remove(target); }
+        var expectedC = ExpectedRemaining(previous.C, previous.At, now);
+        var expectedS = ExpectedRemaining(previous.S, previous.At, now);
+        var confirmedC = false;
+        var confirmedS = false;
         if (pending.TryGetValue(target, out var p))
         {
             var c = p.Action is ActionCatalog.CausticBite or ActionCatalog.VenomousBite or ActionCatalog.IronJaws;
             var s = p.Action is ActionCatalog.Stormbite or ActionCatalog.Windbite or ActionCatalog.IronJaws;
-            if (now - p.Time <= 2 && (!c || caustic > 40 && caustic > p.C + 0.5f) && (!s || storm > 40 && storm > p.S + 0.5f))
-            { Record(target, p.Action, p.Multiplier); pending.Remove(target); }
+            if (now - p.Time is >= 0 and <= 2 &&
+                (!c || caustic > 40 && caustic > ExpectedRemaining(p.C, p.ObservedAt, now) + 0.5f) &&
+                (!s || storm > 40 && storm > ExpectedRemaining(p.S, p.ObservedAt, now) + 0.5f))
+            { Record(target, p.Action, p.Multiplier); pending.Remove(target); confirmedC = c; confirmedS = s; }
             else if (now - p.Time > 2) pending.Remove(target);
         }
-        observed[target] = (caustic, storm);
+        // Expired or unattributed refreshed statuses cannot inherit an old buff.
+        // A partially observed Iron Jaws remains unknown until both updates arrive.
+        if (entries.TryGetValue(target, out var state))
+        {
+            // Compare against the timer NOW, not the last raw reading. During a
+            // target switch 40 -> 25 after 30s is a refresh, not normal decay.
+            var renewedC = !confirmedC && caustic > expectedC + 0.5f;
+            var renewedS = !confirmedS && storm > expectedS + 0.5f;
+            if (caustic <= 0 || renewedC) state = state with { C = false, Caustic = 1 };
+            if (storm <= 0 || renewedS) state = state with { S = false, Storm = 1 };
+            entries[target] = state;
+        }
+        observed[target] = (caustic, storm, now);
     }
+    private static float ExpectedRemaining(float remaining, double observedAt, double now) =>
+        (float)Math.Max(0, remaining - Math.Max(0, now - observedAt));
     public void Record(ulong target, uint action, float multiplier)
     {
         if (target == 0) return;

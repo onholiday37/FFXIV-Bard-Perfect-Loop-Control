@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.1.0</Version>
+    <Version>1.1.6.0</Version>
     <AssemblyName>BardPerfectLoopControl</AssemblyName>
     <Author>Codex / ouyan</Author>
     <Name>吟游诗人完美轴·半自动版</Name>
     <Punchline>帮你打吟游输出、切歌和开团辅，走位与减伤自己来。</Punchline>
-    <Description>1.1.1：手动启动后，帮你处理输出循环、进攻团辅和选好的药食。进战时优先吃首药，确认药效后继续自动输出。支持绝神兵、群攻和自定义方案，两个GCD之间最多双插。选目标、走位、减伤和机制仍要自己处理。新版尚未完成游戏内实测；任何插件都可能导致封号，后果自负。</Description>
+    <Description>1.1.6：修复复活后 Tab 选中却一直等待的问题。重新选敌后保留记录，等待同一目标可攻击及战斗标记恢复；取消目标、再次死亡或停止时清除。死亡前残留目标不自动恢复输出。&#10;死亡保持启动，复活后等你重新选中敌人；手动启动，自动输出、进攻团辅和自选药食，走位与减伤自己处理。尚未游戏内实测。任何插件都可能导致封号，后果自负。开别怕，怕别开。</Description>
     <Tags>bard;rotation;control;timeline;吟游诗人;半自动</Tags>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

@@ -4,7 +4,7 @@ internal static class Simulation
 {
     public static void Run()
     {
-        foreach (var scenario in new[] { (2.47f, false), (2.49f, false), (2.50f, false), (2.50f, true) })
+        foreach (var scenario in new[] { (2.47f, false), (2.48f, false), (2.49f, false), (2.50f, false), (2.50f, true) })
         foreach (var downtime in new[] { false, true })
         {
             var (gcd, advanced) = scenario;
@@ -20,10 +20,27 @@ internal static class Simulation
         Console.WriteLine("SIM units are expected own-buff-weighted action potency; not game DPS. Baseline uses the old priority with corrected readiness, same GCD evaluator. No auto-attacks, gear scaling, party buffs, damage variance, latency or actual game execution.");
     }
 
-    private sealed record Result(double Damage, double DotDamage, int EaCount, int HCount, int PpCount, int Overflow);
+    public static void RunLong()
+    {
+        foreach (var gcd in new[] { 2.47f, 2.48f, 2.49f, 2.50f })
+        foreach (var advanced in new[] { false, true })
+        foreach (var seed in new[] { 1, 2 })
+        {
+            var result = new World(gcd, seed, true, false, advanced, 1200).Run();
+            var starts = result.WandererStarts;
+            if (starts.Length < 9) throw new Exception("LONG song cycle stalled");
+            var intervals = starts.Zip(starts.Skip(1), (a, b) => b - a).ToArray();
+            if (intervals.Any(t => t < 119.99f || t > 130)) throw new Exception("LONG unexpected song cycle interval");
+            var drift = starts[^1] - starts[0] - (starts.Length - 1) * 120;
+            Console.WriteLine($"LONG gcd={gcd:F2} axis={(advanced ? "369" : "3312")} seed={seed} duration=1200 WM={starts.Length} interval={intervals.Min():F3}..{intervals.Max():F3}s cumulativeDrift={drift:F3}s damageUnits={result.Damage:F1}");
+        }
+        Console.WriteLine("LONG PASS: 16 x 1200s; no early song, invalid weave or stalled cycle. Drift is measured, not eliminated.");
+    }
+
+    private sealed record Result(double Damage, double DotDamage, int EaCount, int HCount, int PpCount, int Overflow, float[] WandererStarts);
     private sealed class World
     {
-        private const float End = 300;
+        private readonly float End;
         private readonly float baseGcd;
         private readonly Random random;
         private readonly bool modern, downtime, advanced;
@@ -41,15 +58,24 @@ internal static class Simulation
         private int encoreCoda;
         private double damage, dotDamage;
         private readonly List<string> opener = [];
+        private readonly List<string> songTrace = [];
+        private readonly List<float> wandererStarts = [];
         private (float At, uint Id, float Multiplier)? pendingDot;
-        public World(float gcd, int seed, bool modern, bool downtime, bool advanced)
-        { baseGcd = gcd; random = new(seed); this.seed = seed; this.modern = modern; this.downtime = downtime; this.advanced = advanced; }
+        public World(float gcd, int seed, bool modern, bool downtime, bool advanced, float duration = 300)
+        { baseGcd = gcd; random = new(seed); this.seed = seed; this.modern = modern; this.downtime = downtime; this.advanced = advanced; End = duration; }
         private bool TargetAt(float t) => !downtime || t < 78 || t >= 98;
         private float Cd(uint id) => Math.Max(0, ready.GetValueOrDefault(id) - now);
         private float Remaining(float until) => Math.Max(0, until - now);
         private float Multiplier => (rageEnd > now ? 1.15f : 1) * (voiceEnd > now ? 1.1f / 1.05f : 1) * (finaleEnd > now ? finaleMult : 1);
         private int Limit => song == BardSong.Army && army >= 4 ? 1 : 2;
-        private float NextSongCut => song == BardSong.Wanderer ? 43 : song == BardSong.Mage ? advanced ? 40 : 43 : advanced ? 37 : 34;
+        private GuideSongPlan SongPlan => GuideAxisRules.ResolveSongPlan(
+            advanced ? SongPlanMode.Advanced369 : SongPlanMode.Standard3312, baseGcd, 0, 0, 0);
+        private float CutRemaining => song switch
+        {
+            BardSong.Wanderer => SongPlan.WandererCutRemaining,
+            BardSong.Mage => SongPlan.MageCutRemaining,
+            BardSong.Army => SongPlan.ArmyCutRemaining, _ => 0,
+        };
         private uint NextSongId => song switch { BardSong.Wanderer => ActionCatalog.MagesBallad, BardSong.Mage => ActionCatalog.ArmysPaeon, BardSong.Army => ActionCatalog.WanderersMinuet, _ => ActionCatalog.WanderersMinuet };
 
         public Result Run()
@@ -82,7 +108,7 @@ internal static class Simulation
                 var p = new PlannerState
                 {
                     Gcd = nextGcd - lastGcd, NextGcd = nextGcd - now, Earliest = 0, Slots = Limit - slots, FutureSlots = Limit,
-                    Song = song, SongRemaining = Remaining(songEnd), SongSwitchIn = song == BardSong.None ? 0 : songStart + NextSongCut - now,
+                    Song = song, SongRemaining = Remaining(songEnd), SongSwitchIn = song == BardSong.None ? 0 : SongContinuity.SwitchIn(Remaining(songEnd), CutRemaining),
                     NextSongAction = NextSongId, NextSongReady = Cd(NextSongId), NextNaturalTick = Math.Max(0, nextSongTick - now),
                     Repertoire = repertoire, Soul = soul, PendingRepertoireIn = pendingEmpyreal - now,
                     Charges = new((int)(bank / 15), 3, bank >= 45 ? 0 : 15 - bank % 15, 45 - bank),
@@ -93,9 +119,15 @@ internal static class Simulation
                     BurstEarliest = gcdCount < 2 ? nextGcd - now + 0.70f : 0, KnownTargetEnd = true, TargetLifetime = End - now,
                 };
                 var plan = modern ? WeavePlanner.Plan(p) : Legacy(p);
-                if (plan.First is { } first && first.At < 0.001f)
+                if (plan.First is { } first && first.At <= 0)
                 {
                     if (slots >= Limit || now + 0.78f > nextGcd) throw new Exception("SIM attempted invalid weave");
+                    if (modern && SongContinuity.IsSong(first.ActionId) &&
+                        !SongContinuity.CanSend(first.ActionId, p.NextSongAction, p.SongSwitchIn))
+                        throw new Exception($"SIM early/stale song: remaining={p.SongRemaining} cutIn={p.SongSwitchIn}");
+                    if (modern && SongContinuity.IsSong(first.ActionId))
+                        songTrace.Add($"{now:F3}s {song}->{WeavePlanner.Name(first.ActionId)} remaining={p.SongRemaining:F3}s cutIn={p.SongSwitchIn:F3}s");
+                    if (first.ActionId == ActionCatalog.WanderersMinuet) wandererStarts.Add(now);
                     ExecuteOgcd(first.ActionId); slots++; lastAction = now;
                 }
                 else
@@ -114,9 +146,11 @@ internal static class Simulation
                     if (counts.GetValueOrDefault(id) == 0) throw new Exception($"SIM missing offense {id}; opener={string.Join(",",opener)}");
                 if (!opener.Any(x => x.Contains("碎心箭"))) throw new Exception("SIM opener missing Heartbreak");
             }
-            if (baseGcd == 2.49f && !downtime && modern && seed == 1)
+            if (End == 300 && baseGcd == 2.49f && !downtime && modern && seed == 1)
                 Console.WriteLine("OPENER " + string.Join(" | ", opener));
-            return new(damage, dotDamage, counts.GetValueOrDefault(ActionCatalog.EmpyrealArrow), counts.GetValueOrDefault(ActionCatalog.HeartbreakShot), counts.GetValueOrDefault(ActionCatalog.PitchPerfect), overflow);
+            if (End == 300 && baseGcd == 2.48f && !downtime && modern && seed == 1)
+                Console.WriteLine("SONG_TRACE_248 " + string.Join(" | ", songTrace));
+            return new(damage, dotDamage, counts.GetValueOrDefault(ActionCatalog.EmpyrealArrow), counts.GetValueOrDefault(ActionCatalog.HeartbreakShot), counts.GetValueOrDefault(ActionCatalog.PitchPerfect), overflow, wandererStarts.ToArray());
         }
         private WeavePlan Legacy(PlannerState p)
         {

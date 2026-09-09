@@ -1,0 +1,55 @@
+  Dalamud.NET.Sdk: root at C:\Users\ouyan\AppData\Roaming\XIVLauncher\addon\Hooks\dev\
+  BardPerfectLoopControl -> C:\Users\ouyan\Documents\Codex\2026-08-29\gei\work\bard-perfect-loop-control\bin\Release\BardPerfectLoopControl.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:01.43
+1.1.3 song deadline, action-lock recovery and DoT confidence regression checks passed.
+Queued GCD cancellation and uncertain-execution boundary tests passed.
+two stacks EA then PP, no intervening proc: 联合排程：九天连箭 +0.70s → 完美音调 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=281.35
+three stacks PP before EA: 联合排程：完美音调 +0.70s → 九天连箭 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=269.21
+two stacks clear before certain intervening natural proc: 联合排程：完美音调 +1.00s → 九天连箭 +1.70s；含自然诗心分支、充能/诗心期末价值和真实CD score=500.01
+no natural proc does not force two-stack dump: 联合排程：九天连箭 +0.70s → 完美音调 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=281.35
+EA cooling does not starve Heartbreak: 联合排程：碎心箭 +0.70s；含自然诗心分支、充能/诗心期末价值和真实CD score=81.24
+Mage full charges spends before EA reduction: 联合排程：碎心箭 +0.70s → 九天连箭 +1.40s；含自然诗心分支、充能/诗心期末价值和真实CD score=316.45
+reserve: 联合排程：九天连箭 +0.76s；含自然诗心分支、充能/诗心期末价值和真实CD
+rejected Finale does not block all other buffs: 联合排程：战斗之声 +0.70s → 猛者强击 +1.40s → 碎心箭 +3.19s → 纷乱箭 +3.89s；含自然诗心分支、充能/诗心期末价值和真实CD score=356.13
+collect imminent third coda before Finale: 已到切歌时间，先给下一首歌留插入位置 score=0.00
+PERF 30 plans median=1.69ms p95=2.40ms max=2.48ms
+UWU/AOE/consumable boundary tests passed.
+Delayed Tab recovery intent and cancellation boundary checks passed.
+Death recovery and song continuity checks passed.
+Replan, custom candidate fallback and song-slot regression checks passed.
+SIM gcd=2.47 axis=3312 downtime=False seeds=10 duration=300 baseline=63346.8 v1=66020.3 delta=4.22% dots=4814.1 EA=19.40 H=38.00 PP=15.00 overflow=0.60 min=65250.1 max=66688.2
+SIM gcd=2.47 axis=3312 downtime=True seeds=10 duration=300 baseline=60617.3 v1=61815.8 delta=1.98% dots=4315.7 EA=19.20 H=36.60 PP=16.10 overflow=0.10 min=61029.6 max=62455.3
+SONG_TRACE_248 0.700s None->旅神歌 remaining=0.000s cutIn=0.000s | 43.700s Wanderer->贤者歌 remaining=2.000s cutIn=0.000s | 87.500s Mage->军神歌 remaining=1.200s cutIn=0.000s | 122.280s Army->旅神歌 remaining=10.220s cutIn=0.000s | 166.020s Wanderer->贤者歌 remaining=1.260s cutIn=0.000s | 209.960s Mage->军神歌 remaining=1.060s cutIn=0.000s | 244.740s Army->旅神歌 remaining=10.220s cutIn=0.000s | 288.480s Wanderer->贤者歌 remaining=1.260s cutIn=0.000s
+SIM gcd=2.48 axis=3312 downtime=False seeds=10 duration=300 baseline=64599.8 v1=66374.3 delta=2.75% dots=4795.6 EA=19.80 H=37.80 PP=16.00 overflow=0.70 min=65625.5 max=67046.3
+SIM gcd=2.48 axis=3312 downtime=True seeds=10 duration=300 baseline=60815.0 v1=61898.8 delta=1.78% dots=4315.7 EA=19.80 H=36.30 PP=15.70 overflow=0.70 min=61194.6 max=62757.9
+OPENER 0.00 狂风蚀箭 | 0.70 旅神歌 | 1.40 九天连箭 | 2.49 烈毒咬箭 | 3.19 光明神的最终乐章 | 3.89 战斗之声 | 4.98 辉煌箭 | 6.18 猛者强击 | 7.47 光明神的返场余音 | 8.17 碎心箭 | 8.87 完美音调 | 9.96 爆发射击 | 10.66 纷乱箭 | 11.36 侧风诱导箭 | 12.45 辉煌箭 | 13.15 完美音调 | 13.85 碎心箭 | 14.94 共鸣箭 | 16.40 九天连箭 | 17.43 爆发射击 | 18.13 碎心箭 | 19.92 辉煌箭 | 22.41 爆发射击 | 23.11 完美音调 | 23.81 碎心箭 | 24.90 辉煌箭
+SIM gcd=2.49 axis=3312 downtime=False seeds=10 duration=300 baseline=62868.5 v1=66373.9 delta=5.58% dots=4834.1 EA=19.90 H=38.10 PP=16.30 overflow=0.50 min=65403.6 max=67294.0
+SIM gcd=2.49 axis=3312 downtime=True seeds=10 duration=300 baseline=60498.4 v1=62465.3 delta=3.25% dots=4304.4 EA=20.00 H=37.90 PP=15.40 overflow=0.70 min=61426.0 max=63468.4
+SIM gcd=2.50 axis=3312 downtime=False seeds=10 duration=300 baseline=65179.5 v1=66062.3 delta=1.35% dots=4832.8 EA=20.00 H=38.20 PP=16.20 overflow=0.30 min=65481.9 max=67168.8
+SIM gcd=2.50 axis=3312 downtime=True seeds=10 duration=300 baseline=61683.6 v1=62388.6 delta=1.14% dots=4304.4 EA=20.00 H=37.10 PP=15.20 overflow=0.40 min=61012.7 max=63336.1
+SIM gcd=2.50 axis=369 downtime=False seeds=10 duration=300 baseline=65470.3 v1=66222.4 delta=1.15% dots=4826.6 EA=20.00 H=37.90 PP=16.00 overflow=0.20 min=65286.9 max=66915.9
+SIM gcd=2.50 axis=369 downtime=True seeds=10 duration=300 baseline=61534.7 v1=62031.7 delta=0.81% dots=4304.4 EA=19.70 H=36.20 PP=15.40 overflow=0.40 min=60795.6 max=63158.0
+SIM units are expected own-buff-weighted action potency; not game DPS. Baseline uses the old priority with corrected readiness, same GCD evaluator. No auto-attacks, gear scaling, party buffs, damage variance, latency or actual game execution.
+LONG gcd=2.47 axis=3312 seed=1 duration=1200 WM=10 interval=121.639..123.440s cumulativeDrift=19.855s damageUnits=258047.4
+LONG gcd=2.47 axis=3312 seed=2 duration=1200 WM=10 interval=121.540..123.540s cumulativeDrift=19.855s damageUnits=255961.0
+LONG gcd=2.47 axis=369 seed=1 duration=1200 WM=10 interval=121.229..123.210s cumulativeDrift=17.026s damageUnits=257648.7
+LONG gcd=2.47 axis=369 seed=2 duration=1200 WM=10 interval=121.039..123.309s cumulativeDrift=19.076s damageUnits=256342.4
+LONG gcd=2.48 axis=3312 seed=1 duration=1200 WM=10 interval=121.580..122.760s cumulativeDrift=20.458s damageUnits=259227.5
+LONG gcd=2.48 axis=3312 seed=2 duration=1200 WM=10 interval=121.359..123.060s cumulativeDrift=21.178s damageUnits=256140.9
+LONG gcd=2.48 axis=369 seed=1 duration=1200 WM=10 interval=121.320..122.759s cumulativeDrift=18.458s damageUnits=257570.3
+LONG gcd=2.48 axis=369 seed=2 duration=1200 WM=10 interval=121.320..122.220s cumulativeDrift=17.698s damageUnits=256880.2
+LONG gcd=2.49 axis=3312 seed=1 duration=1200 WM=10 interval=122.090..123.280s cumulativeDrift=26.729s damageUnits=260916.7
+LONG gcd=2.49 axis=3312 seed=2 duration=1200 WM=10 interval=120.690..123.080s cumulativeDrift=22.049s damageUnits=257760.4
+LONG gcd=2.49 axis=369 seed=1 duration=1200 WM=10 interval=120.290..122.080s cumulativeDrift=13.849s damageUnits=258693.0
+LONG gcd=2.49 axis=369 seed=2 duration=1200 WM=10 interval=120.030..121.980s cumulativeDrift=12.790s damageUnits=255333.9
+LONG gcd=2.50 axis=3312 seed=1 duration=1200 WM=10 interval=122.400..123.790s cumulativeDrift=28.159s damageUnits=258031.7
+LONG gcd=2.50 axis=3312 seed=2 duration=1200 WM=10 interval=120.800..123.300s cumulativeDrift=25.989s damageUnits=255792.7
+LONG gcd=2.50 axis=369 seed=1 duration=1200 WM=10 interval=120.200..122.500s cumulativeDrift=8.439s damageUnits=258867.6
+LONG gcd=2.50 axis=369 seed=2 duration=1200 WM=10 interval=120.200..121.879s cumulativeDrift=5.760s damageUnits=253973.5
+LONG PASS: 16 x 1200s; no early song, invalid weave or stalled cycle. Drift is measured, not eliminated.
+PASS: 5493 checks

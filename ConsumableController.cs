@@ -44,6 +44,17 @@ internal sealed class ConsumableController(Plugin plugin)
         lastUseElapsed = uses > 0 ? -Math.Max(0, item!.Duration - buff.Left) : double.NegativeInfinity;
     }
     public void OnStart() { disabledAfterUncertainUse = false; }
+    public void OnDeath()
+    {
+        if (pending is not null)
+        {
+            // The item may already have been consumed before death removed its buff.
+            // Continue fighting after revival, but require a manual restart before more items.
+            disabledAfterUncertainUse = true;
+            pending = null;
+            LastFailure = "倒地时药食请求尚未确认；本轮暂停自动药食，请核对背包后手动重启才能恢复用药";
+        }
+    }
 
     public unsafe void Refresh(bool force = false)
     {
@@ -180,7 +191,7 @@ internal sealed class ConsumableController(Plugin plugin)
 
     private unsafe bool TryUse(ConsumableChoice choice, float buffBefore, bool requireBuff = false)
     {
-        if (pending is not null || disabledAfterUncertainUse || ActionObserver.Now < rejectedUntil || plugin.Configuration.ShadowOnly || !plugin.Engine.Armed) return false;
+        if (pending is not null || disabledAfterUncertainUse || ActionObserver.Now < rejectedUntil || plugin.Configuration.ShadowOnly || !plugin.Engine.Armed || plugin.Engine.WaitingForRevival) return false;
         Refresh(true);
         var item = Selected(choice.Kind);
         var manager = ActionManager.Instance();

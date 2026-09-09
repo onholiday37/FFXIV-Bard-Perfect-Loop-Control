@@ -11,6 +11,16 @@
     <Compile Include="PlannerTests.cs" />
     <Compile Include="Simulation.cs" />
     <Compile Include="EncounterTests.cs" />
+    <Compile Include="RecoveryTests.cs" />
+    <Compile Include="RecoveryIntentTests.cs" />
+    <Compile Include="ReplanTests.cs" />
+    <Compile Include="..\..\ExecutionSession.cs" Link="ExecutionSession.cs" />
+    <Compile Include="..\..\RotationSelector.cs" Link="RotationSelector.cs" />
+    <Compile Include="AuditTests.cs" />
+    <Compile Include="PendingActionTests.cs" />
+    <Compile Include="..\..\PendingActionWatch.cs" Link="PendingActionWatch.cs" />
+    <Compile Include="..\..\RecoveryRules.cs" Link="RecoveryRules.cs" />
+    <Compile Include="..\..\SongContinuity.cs" Link="SongContinuity.cs" />
     <Compile Include="..\..\AoeGeometry.cs" Link="AoeGeometry.cs" />
     <Compile Include="..\..\EncounterPlanner.cs" Link="EncounterPlanner.cs" />
     <Compile Include="..\..\ConsumableRules.cs" Link="ConsumableRules.cs" />

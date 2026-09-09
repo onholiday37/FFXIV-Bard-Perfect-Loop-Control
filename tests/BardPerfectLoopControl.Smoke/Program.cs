@@ -87,7 +87,13 @@ Check(level50Ogcd?.ActionId == ActionCatalog.Bloodletter && level50Ogcd.Name == 
 Check(RotationMath.EstimateDotTicks(5.8f, 3f) == 2, "DoT remaining tick estimate");
 Check(RotationMath.RemainingDotPotency(2, 25) == 50, "DoT remaining potency");
 
+AuditTests.Run(Check);
+PendingActionTests.Run(Check);
 PlannerTests.Run(Check);
 EncounterTests.Run(Check);
+RecoveryIntentTests.Run(Check);
+RecoveryTests.Run(Check);
+ReplanTests.Run(Check);
 if (args.Contains("--simulate")) Simulation.Run();
+if (args.Contains("--long")) Simulation.RunLong();
 Console.WriteLine($"PASS: {checks} checks");

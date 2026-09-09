@@ -98,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
         if (Engine.Armed)
         {
             Engine.ResetTimeline();
-            Executor.Reset($"已切换：{ScenarioRules.Resolve(scenario).ShortName}");
+            Executor.Replan($"已切换：{ScenarioRules.Resolve(scenario).ShortName}；保留本场执行记录");
         }
     }
 
@@ -121,6 +121,12 @@ public sealed class Plugin : IDalamudPlugin
     {
         try
         {
+            if (Engine.Armed && ObjectTable.LocalPlayer is { } player && (player.IsDead || player.CurrentHp == 0))
+            {
+                // Clear death-interrupted requests before their normal timeout can stop control.
+                Engine.Update();
+                return;
+            }
             Executor.Observe();
             Consumables.Poll();
             if (Engine.Armed && IsBard && ObjectTable.LocalPlayer is { CurrentHp: > 0 }) Battlefield.Update();
@@ -165,7 +171,7 @@ public sealed class Plugin : IDalamudPlugin
             case "reset":
             case "重置":
                 Engine.ResetTimeline();
-                Executor.Reset("已重新规划，等待下一个 GCD");
+                Executor.Replan("已重新规划，保留本场执行记录与插入次数");
                 ChatGui.Print("[吟游完美轴·半自动] 已按当前状态重新规划。");
                 break;
             case "overlay":

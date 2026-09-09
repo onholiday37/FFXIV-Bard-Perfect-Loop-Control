@@ -61,7 +61,7 @@ public sealed class ShadowOverlayWindow : Window, IDisposable
         if (ImGui.Button("重新对齐时间轴"))
         {
             plugin.Engine.ResetTimeline();
-            plugin.Executor.Reset("已重新规划，等待下一个 GCD");
+            plugin.Executor.Replan("已重新规划，保留本场执行记录与插入次数");
         }
         ImGui.SameLine();
         if (ImGui.Button("编辑循环"))

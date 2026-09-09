@@ -38,8 +38,9 @@ public static class GuideAxisRules
 
         return mode switch
         {
-            // The guide names the plans 3-3-12 / 3-6-9, but its actionable
-            // in-game cut points are one second lower: 2/2/11 and 2/5/8.
+            // Existing presets target 43/43/34 and 43/40/37 seconds of singing.
+            // These are chosen points within guide windows, not a universal
+            // one-second conversion between the gauge and displayed timer.
             SongPlanMode.Standard3312 => new("攻略 3-3-12（43旅 / 43贤 / 34军）", 2f, 2f, 11f),
             SongPlanMode.Advanced369 => new("攻略 3-6-9（43旅 / 40贤 / 37军）", 2f, 5f, 8f),
             _ => new(

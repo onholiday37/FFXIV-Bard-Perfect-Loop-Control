@@ -21,6 +21,7 @@ public static class WeavePlanner
     {
         if (!input.TargetAvailable || input.TargetLifetime <= 0)
             return WeavePlan.Empty("无可攻击目标：不追赶旧轴");
+        if (SongContinuity.Plan(input) is { } songPlan) return songPlan;
         var horizon = Math.Min(input.TargetLifetime, input.NextGcd + input.Gcd * 2);
         if (horizon <= 0 || !float.IsFinite(horizon))
             return WeavePlan.Empty("时间数据不可用");
@@ -124,7 +125,7 @@ public static class WeavePlanner
         if (action == 6 || !s.ModernBurst && action is 4 or 5)
             at = Math.Max(at, n.WindowEnd - s.Gcd * 0.52f);
         if (action == 8)
-            at = Math.Max(at, Math.Max(s.NextSongReady, n.Song == BardSong.None ? 0 : s.SongSwitchIn - 0.25f));
+            at = SongContinuity.Earliest(at, s.NextSongReady, n.Song != BardSong.None, s.SongSwitchIn);
         return at;
     }
 

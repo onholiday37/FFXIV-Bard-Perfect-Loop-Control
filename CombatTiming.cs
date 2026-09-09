@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace BardPerfectLoop;
 
@@ -42,6 +44,13 @@ public sealed class ActionTimeline
         LastGcdAt = double.NegativeInfinity;
         Fault = string.Empty;
         Revision++;
+    }
+
+    public void ResetAfterDeath()
+    {
+        var count = GcdCount;
+        Reset();
+        GcdCount = count; // A resurrection is not a new pull/opener.
     }
 
     public int Observe(ushort currentSequence, float gcdRemaining, float gcdTotal, double now)
@@ -107,4 +116,29 @@ public static class CombatTiming
 
     public static bool Fits(float start, float nextGcd, float lockSeconds, float margin) =>
         start >= 0 && start + Math.Max(0.70f, lockSeconds) + Math.Max(0.02f, margin) <= nextGcd;
+}
+
+/// <summary>A conservative recent-sample maximum, not a permanent high-water mark.</summary>
+public sealed class ActionLockEstimate
+{
+    private readonly List<(double At, float Lock)> samples = [];
+    public void Reset() => samples.Clear();
+    public void Observe(double executedAt, double now, float remaining, bool knownNormalAction)
+    {
+        Prune(now);
+        var elapsed = now - executedAt;
+        if (!knownNormalAction || !double.IsFinite(executedAt) || !double.IsFinite(now) ||
+            elapsed is < 0 or >= 1.5 || !float.IsFinite(remaining) || remaining is <= 0.001f or >= 1.5f) return;
+        var estimate = Math.Clamp((float)elapsed + remaining + .02f, .70f, 1.5f);
+        var index = samples.FindIndex(s => s.At == executedAt);
+        if (index >= 0) samples[index] = (executedAt, Math.Max(samples[index].Lock, estimate));
+        else samples.Add((executedAt, estimate));
+        while (samples.Count > 16) samples.RemoveAt(0);
+    }
+    public float Value(double now, float configured)
+    {
+        Prune(now);
+        return Math.Max(Math.Max(.70f, configured), samples.Select(s => s.Lock).DefaultIfEmpty(.70f).Max());
+    }
+    private void Prune(double now) => samples.RemoveAll(s => now - s.At > 30);
 }
